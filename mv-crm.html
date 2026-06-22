@@ -241,6 +241,17 @@ a:hover{text-decoration:underline}
 .ac-item.new-item{background:#1E3A5F;color:#93C5FD;font-weight:500}
 .ac-item.new-item:hover{background:#1E40AF;color:#fff}
 .empty-route{text-align:center;padding:34px 16px;color:var(--text-3);font-size:12.5px}
+/* PA KOORDINATA — sidebar list (Task 1) */
+.no-loc-panel{flex-shrink:0;border-top:1px solid var(--border);background:var(--bg);max-height:34vh;overflow-y:auto;padding:10px 12px 14px}
+.no-loc-panel.empty{display:none}
+.nlp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;position:sticky;top:0;background:var(--bg);padding-bottom:4px;z-index:2}
+.nlp-head h3{font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin:0}
+.nlp-count{font-size:11px;color:var(--text-2);background:var(--surface);border:1px solid var(--border);padding:2px 9px;border-radius:999px;font-weight:500}
+.nlp-item{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 11px;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;text-decoration:none;color:var(--text);cursor:pointer}
+.nlp-item:hover{border-color:var(--accent);text-decoration:none;background:var(--surface-3)}
+.nlp-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.nlp-item .zh{color:var(--text-3);font-weight:400;font-size:11px;margin-left:4px}
+.nlp-item .ic{flex-shrink:0;color:var(--accent);font-size:13px}
 </style>
 </head>
 <body>
@@ -274,6 +285,10 @@ a:hover{text-decoration:underline}
         <span class="num" id="unlocated-num">0</span> pa koordinata
       </button>
       <div class="map-counts" id="map-counts"></div>
+    </div>
+    <div class="no-loc-panel empty" id="no-loc-panel">
+      <div class="nlp-head"><h3>Pa koordinata</h3><span class="nlp-count" id="nlp-count">0</span></div>
+      <div id="nlp-list"></div>
     </div>
   </section>
   <section class="view" id="view-list">
@@ -540,6 +555,22 @@ function renderMap(){
   // Counts pill
   $("map-counts").innerHTML=`<strong>${withCoords.length}</strong> në hartë · <strong>${filtered.length-withCoords.length}</strong> pa koordinata`;
   $("header-count").textContent=`${clients.length} biznese`;
+
+  // Pa koordinata list panel (Task 1)
+  const panel=$("no-loc-panel");
+  if(unlocatedWithUrl.length===0){
+    panel.classList.add("empty");
+  }else{
+    panel.classList.remove("empty");
+    $("nlp-count").textContent=unlocatedWithUrl.length;
+    const cap=200;
+    const list=unlocatedWithUrl.slice(0,cap);
+    $("nlp-list").innerHTML=list.map(c=>`
+      <a class="nlp-item" href="${escapeAttr(c.maps_url)}" target="_blank" rel="noopener">
+        <span class="nm">${escapeHtml(c.business_name)}${c.zone?`<span class="zh">· ${escapeHtml(c.zone)}</span>`:""}</span>
+        <span class="ic">📍</span>
+      </a>`).join("")+(unlocatedWithUrl.length>cap?`<div style="text-align:center;font-size:11px;color:var(--text-3);padding:6px">+ ${unlocatedWithUrl.length-cap} të tjerë... përdor filtrat për t'i ngushtuar</div>`:"");
+  }
 }
 
 /* ============================================================
