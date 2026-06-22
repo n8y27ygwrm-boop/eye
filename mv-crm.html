@@ -176,6 +176,71 @@ a:hover{text-decoration:underline}
 .error-screen .icon{font-size:42px;margin-bottom:14px}
 .error-screen .ttl{font-size:15px;color:var(--danger);font-weight:600;margin-bottom:10px}
 .error-screen .msg{font-size:12.5px;color:var(--text-2);line-height:1.55;margin-bottom:14px;background:var(--surface);border:1px solid var(--border);padding:10px;border-radius:8px;text-align:left;font-family:"SF Mono",ui-monospace,monospace}
+/* ROUTE VIEW */
+.route-wrap{padding:10px 12px 90px}
+.calendar-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px}
+.cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
+.cal-month{font-size:14px;font-weight:600;color:var(--text);letter-spacing:-.1px}
+.cal-controls{display:flex;gap:5px}
+.cal-controls button{height:28px;min-width:28px;padding:0;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:13px;display:flex;align-items:center;justify-content:center}
+.cal-controls .today-btn{padding:0 10px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.cal-controls button:hover{border-color:var(--text-3);color:var(--text)}
+.cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:5px}
+.cal-weekday{text-align:center;font-size:9.5px;color:var(--text-3);font-weight:600;text-transform:uppercase;padding:4px 0;letter-spacing:.4px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:7px;background:transparent;color:var(--text-2);font-size:12.5px;font-weight:500;position:relative;cursor:pointer;border:1px solid transparent}
+.cal-day.other-month{color:var(--text-3);opacity:.35}
+.cal-day:hover{background:var(--surface-2)}
+.cal-day.today{border-color:var(--accent);color:var(--accent);font-weight:600}
+.cal-day.has-visits::after{content:"";position:absolute;bottom:4px;width:4px;height:4px;border-radius:50%;background:var(--accent)}
+.cal-day.selected{background:var(--accent);color:#fff}
+.cal-day.selected.has-visits::after{background:#fff}
+.cal-day.selected.today{color:#fff}
+.daily-log{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
+.dl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
+.dl-title{font-size:13.5px;font-weight:600;color:var(--text);flex:1;line-height:1.3}
+.dl-title .sub{display:block;font-size:11px;color:var(--text-3);font-weight:400;margin-top:1px}
+.dl-count{font-size:11px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);padding:2px 9px;border-radius:999px}
+.add-visit-btn{width:100%;padding:10px;background:var(--accent);color:#fff;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:10px}
+.add-visit-btn:hover{background:var(--accent-2)}
+.visit-card{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px}
+.vc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px}
+.vc-name{font-size:13.5px;font-weight:600;color:var(--text);flex:1;line-height:1.3}
+.vc-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:11.5px;color:var(--text-2);margin-bottom:5px}
+.vc-loc{color:#60A5FA;text-decoration:none;font-size:11.5px;display:inline-flex;align-items:center;gap:3px}
+.vc-loc:hover{text-decoration:underline}
+.vc-notes{font-size:12.5px;color:var(--text-2);line-height:1.4;margin-top:4px;white-space:pre-wrap;cursor:pointer}
+.vc-notes.truncated{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vc-actions{display:flex;gap:6px;margin-top:8px}
+.vc-actions button{padding:5px 11px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--text-2)}
+.vc-actions .vc-edit:hover{color:var(--accent);border-color:var(--accent)}
+.vc-actions .vc-delete:hover{color:var(--danger);border-color:var(--danger)}
+/* VISIT MODAL */
+.modal-overlay-center{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:none;align-items:center;justify-content:center;animation:fadeIn .18s;backdrop-filter:blur(2px);padding:14px}
+.modal-overlay-center.open{display:flex}
+.modal-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:480px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;animation:slideUp .22s;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.mc-head{padding:13px 16px 11px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
+.mc-title{font-size:15px;font-weight:600;letter-spacing:-.1px}
+.mc-close{width:28px;height:28px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.mc-close:hover{border-color:var(--text-3);color:var(--text)}
+.mc-body{padding:14px 16px;overflow-y:auto;flex:1}
+.mc-foot{padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;background:var(--surface)}
+.mc-field{margin-bottom:11px}
+.mc-field:last-child{margin-bottom:0}
+.mc-field label{display:block;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:600;margin-bottom:4px}
+.mc-field input,.mc-field select,.mc-field textarea{font-size:13px;background:var(--surface-2)}
+.mc-field textarea{min-height:78px;resize:vertical;line-height:1.45}
+.ac-wrap{position:relative}
+.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border-2);border-radius:7px;max-height:200px;overflow-y:auto;box-shadow:0 6px 20px rgba(0,0,0,.6);z-index:60;display:none;margin-top:2px}
+.ac-list.open{display:block}
+.ac-item{padding:8px 11px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--border);color:var(--text)}
+.ac-item:last-child{border-bottom:none}
+.ac-item:hover{background:var(--surface-2)}
+.ac-item .zhint{color:var(--text-3);font-size:10.5px;margin-left:5px}
+.ac-item.new-item{background:#1E3A5F;color:#93C5FD;font-weight:500}
+.ac-item.new-item:hover{background:#1E40AF;color:#fff}
+.empty-route{text-align:center;padding:34px 16px;color:var(--text-3);font-size:12.5px}
 </style>
 </head>
 <body>
@@ -220,15 +285,24 @@ a:hover{text-decoration:underline}
       <div id="cards"></div>
     </div>
   </section>
+  <section class="view" id="view-route">
+    <div class="route-wrap">
+      <div class="calendar-card" id="calendar-card"></div>
+      <div class="daily-log" id="daily-log"></div>
+    </div>
+  </section>
 </main>
 
 <nav class="bottom-nav">
   <button class="nav-btn active" data-view="map"><span class="icon">🗺️</span><span>Harta</span></button>
   <button class="nav-btn" data-view="list"><span class="icon">📋</span><span>Lista</span></button>
+  <button class="nav-btn" data-view="route"><span class="icon">🛣️</span><span>Rruga</span></button>
 </nav>
 
 <div class="side-backdrop" id="side-backdrop"></div>
 <aside class="side-panel" id="side-panel"></aside>
+
+<div class="modal-overlay-center" id="visit-modal"><div class="modal-card" id="visit-modal-card"></div></div>
 
 <div class="toast" id="toast"></div>
 
@@ -264,6 +338,7 @@ const EDITABLE_FIELDS=["status","phone","contact_person","general_notes","next_f
    STATE
    ============================================================ */
 let clients=[];
+const _today=new Date();
 let state={
   view:"map",
   search:"",
@@ -272,8 +347,19 @@ let state={
   unlocatedOnly:false,
   activeClientId:null,
   panelDirty:false,
+  route:{year:_today.getFullYear(),month:_today.getMonth(),selectedDate:_isoDate(_today)},
+  visits:[],
+  visitsLoaded:false,
+  editingVisit:null,
 };
 let map=null,markersLayer=null;
+
+const SQ_MONTHS=["Janar","Shkurt","Mars","Prill","Maj","Qershor","Korrik","Gusht","Shtator","Tetor","Nëntor","Dhjetor"];
+const SQ_DAY_SHORT=["Hë","Ma","Më","En","Pr","Sh","Di"];
+const SQ_DAY_FULL=["E Diel","E Hënë","E Martë","E Mërkurë","E Enjte","E Premte","E Shtunë"];
+function _isoDate(d){const dt=d instanceof Date?d:new Date(d);return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0")}
+function _todayISO(){return _isoDate(new Date())}
+function _fmtAlbDate(d){const dt=d instanceof Date?d:new Date(d);return `${SQ_DAY_FULL[dt.getDay()]}, ${dt.getDate()} ${SQ_MONTHS[dt.getMonth()]} ${dt.getFullYear()}`}
 
 /* ============================================================
    HELPERS
@@ -498,6 +584,318 @@ function renderList(){
 }
 
 /* ============================================================
+   ROUTE VIEW (Rruga / Vizitat)
+   ============================================================ */
+async function loadVisits(){
+  if(state.visitsLoaded)return;
+  setSync("syncing");
+  const{data,error}=await sb.from("visits").select("*").order("visit_date",{ascending:false}).order("created_at",{ascending:true});
+  if(error){
+    setSync("error");
+    console.warn("loadVisits failed (table may not exist):",error.message);
+    state.visits=[];
+    state.visitsLoaded=true;
+    return;
+  }
+  state.visits=data||[];
+  state.visitsLoaded=true;
+  setSync("");
+}
+
+function visitsForDate(d){return state.visits.filter(v=>v.visit_date===d)}
+function visitDatesSet(){return new Set(state.visits.map(v=>v.visit_date))}
+
+async function renderRoute(){
+  await loadVisits();
+  renderCalendar();
+  renderDailyLog();
+}
+
+function renderCalendar(){
+  const{year,month,selectedDate}=state.route;
+  const dWV=visitDatesSet();
+  const todayStr=_todayISO();
+  const first=new Date(year,month,1);
+  const last=new Date(year,month+1,0);
+  const daysInMonth=last.getDate();
+  const firstOffset=(first.getDay()+6)%7; // Monday-first
+
+  let cells="";
+  if(firstOffset>0){
+    const prevLast=new Date(year,month,0).getDate();
+    for(let i=firstOffset-1;i>=0;i--)cells+=`<div class="cal-day other-month">${prevLast-i}</div>`;
+  }
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const cls=["cal-day"];
+    if(dWV.has(ds))cls.push("has-visits");
+    if(ds===todayStr)cls.push("today");
+    if(ds===selectedDate)cls.push("selected");
+    cells+=`<div class="${cls.join(" ")}" data-date="${ds}">${d}</div>`;
+  }
+  const totalCells=firstOffset+daysInMonth;
+  const trail=(7-(totalCells%7))%7;
+  for(let i=1;i<=trail;i++)cells+=`<div class="cal-day other-month">${i}</div>`;
+
+  $("calendar-card").innerHTML=`
+    <div class="cal-head">
+      <div class="cal-month">${SQ_MONTHS[month]} ${year}</div>
+      <div class="cal-controls">
+        <button onclick="calNav(-1)" aria-label="Mua paraardhës">‹</button>
+        <button class="today-btn" onclick="calToday()">Sot</button>
+        <button onclick="calNav(1)" aria-label="Muaji ardhshëm">›</button>
+      </div>
+    </div>
+    <div class="cal-weekdays">${SQ_DAY_SHORT.map(d=>`<div class="cal-weekday">${d}</div>`).join("")}</div>
+    <div class="cal-grid">${cells}</div>`;
+  $("calendar-card").querySelectorAll(".cal-day[data-date]").forEach(el=>{
+    el.onclick=()=>{state.route.selectedDate=el.dataset.date;renderCalendar();renderDailyLog()};
+  });
+}
+
+function calNav(d){
+  let{year,month}=state.route;
+  month+=d;
+  if(month<0){month=11;year--}
+  else if(month>11){month=0;year++}
+  state.route.year=year;state.route.month=month;
+  renderCalendar();
+}
+function calToday(){
+  const t=new Date();
+  state.route.year=t.getFullYear();
+  state.route.month=t.getMonth();
+  state.route.selectedDate=_isoDate(t);
+  renderCalendar();
+  renderDailyLog();
+}
+
+function renderDailyLog(){
+  const dateStr=state.route.selectedDate;
+  const dt=new Date(dateStr);
+  const visits=visitsForDate(dateStr);
+  const isToday=dateStr===_todayISO();
+
+  let body=`
+    <div class="dl-head">
+      <div class="dl-title">Vizitat — ${dt.getDate()} ${SQ_MONTHS[dt.getMonth()]}<span class="sub">${_fmtAlbDate(dt)}</span></div>
+      <span class="dl-count">${visits.length} ${visits.length===1?"vizitë":"vizita"}</span>
+    </div>`;
+
+  if(isToday||visits.length>0){
+    body+=`<button class="add-visit-btn" onclick="openVisitModal()">+ Shto vizitë</button>`;
+  }else{
+    body+=`<button class="add-visit-btn" onclick="openVisitModal()">+ Ditë e re për këtë datë</button>`;
+  }
+
+  if(visits.length===0){
+    body+=`<div class="empty-route">Asnjë vizitë në këtë datë.</div>`;
+  }else{
+    body+=visits.map(v=>renderVisitCard(v)).join("");
+  }
+  $("daily-log").innerHTML=body;
+}
+
+function renderVisitCard(v){
+  const info=statusInfo(v.statusi);
+  const loc=v.location_url?`<a class="vc-loc" href="${escapeAttr(v.location_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 Hap Maps</a>`:"";
+  return `
+    <div class="visit-card">
+      <div class="vc-head">
+        <div class="vc-name">${escapeHtml(v.business_name)}</div>
+        <div class="status-badge ${info.cls}">${escapeHtml(info.label)}</div>
+      </div>
+      <div class="vc-meta">${loc||"<span style=\"color:var(--text-3)\">Pa lokacion</span>"}</div>
+      ${v.shenime?`<div class="vc-notes truncated" onclick="this.classList.toggle('truncated')">${escapeHtml(v.shenime)}</div>`:""}
+      <div class="vc-actions">
+        <button class="vc-edit" onclick="openVisitModal('${v.id}')">✏️ Edito</button>
+        <button class="vc-delete" onclick="deleteVisit('${v.id}')">🗑 Hiq</button>
+      </div>
+    </div>`;
+}
+
+function openVisitModal(visitId){
+  const editing=visitId?state.visits.find(v=>v.id===visitId):null;
+  state.editingVisit=editing;
+  const date=state.route.selectedDate;
+  const dt=new Date(date);
+
+  const v=editing||{};
+  $("visit-modal-card").innerHTML=`
+    <div class="mc-head">
+      <div class="mc-title">${editing?"Edito vizitën":"+ Shto vizitë"}<div style="font-size:11px;color:var(--text-3);font-weight:400;margin-top:2px">${_fmtAlbDate(dt)}</div></div>
+      <button class="mc-close" onclick="closeVisitModal()">✕</button>
+    </div>
+    <div class="mc-body">
+      <div class="mc-field">
+        <label>Subjekti (biznesi)</label>
+        <div class="ac-wrap">
+          <input id="vm-subject" type="text" placeholder="Kërko biznes ose shto të ri..." autocomplete="off" value="${escapeAttr(v.business_name||"")}" data-acid="${escapeAttr(v.client_id||"")}">
+          <div class="ac-list" id="vm-ac"></div>
+        </div>
+      </div>
+      <div class="mc-field">
+        <label>Location (Google Maps link)</label>
+        <input id="vm-location" type="text" placeholder="https://maps.google.com/..." value="${escapeAttr(v.location_url||"")}">
+      </div>
+      <div class="mc-field">
+        <label>Statusi</label>
+        <select id="vm-status">
+          ${STATUS_DEFS.map(s=>`<option value="${s.key}" ${v.statusi===s.key?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="mc-field">
+        <label>Shënime</label>
+        <textarea id="vm-notes" placeholder="Çfarë bëre / çfarë the / rezultati...">${escapeHtml(v.shenime||"")}</textarea>
+      </div>
+    </div>
+    <div class="mc-foot">
+      <button class="btn-secondary" onclick="closeVisitModal()">Anulo</button>
+      <button class="btn-primary" id="vm-save" onclick="saveVisit()">${editing?"Ruaj":"Shto vizitën"}</button>
+    </div>`;
+  $("visit-modal").classList.add("open");
+  document.body.style.overflow="hidden";
+
+  // Wire autocomplete
+  const subjInput=$("vm-subject");
+  const acList=$("vm-ac");
+  subjInput.addEventListener("input",()=>{
+    const q=subjInput.value.trim();
+    subjInput.dataset.acid=""; // reset link when typing
+    if(q.length<2){acList.classList.remove("open");return}
+    const qNorm=normalize(q);
+    const matches=clients.filter(c=>normalize(c.business_name).includes(qNorm)).slice(0,6);
+    let html=matches.map(c=>`<div class="ac-item" data-cid="${c.id}" data-cname="${escapeAttr(c.business_name)}">${escapeHtml(c.business_name)}${c.zone?`<span class="zhint">· ${escapeHtml(c.zone)}</span>`:""}</div>`).join("");
+    if(matches.length===0||!matches.some(m=>normalize(m.business_name)===qNorm)){
+      html+=`<div class="ac-item new-item" data-new="1">+ Shto si i ri: "${escapeHtml(q)}"</div>`;
+    }
+    acList.innerHTML=html;
+    acList.classList.add("open");
+    acList.querySelectorAll(".ac-item").forEach(it=>{
+      it.onclick=()=>{
+        if(it.dataset.cid){
+          subjInput.value=it.dataset.cname;
+          subjInput.dataset.acid=it.dataset.cid;
+          const cli=clients.find(c=>c.id===it.dataset.cid);
+          if(cli){
+            const locInput=$("vm-location");
+            if(cli.maps_url&&!locInput.value)locInput.value=cli.maps_url;
+            const stSel=$("vm-status");
+            if(cli.status&&STATUS_BY_KEY[String(cli.status).toLowerCase()])stSel.value=String(cli.status).toLowerCase();
+          }
+        }else if(it.dataset.new){
+          subjInput.dataset.acid="";
+        }
+        acList.classList.remove("open");
+      };
+    });
+  });
+  subjInput.addEventListener("blur",()=>setTimeout(()=>acList.classList.remove("open"),180));
+  setTimeout(()=>subjInput.focus(),50);
+}
+
+function closeVisitModal(){
+  $("visit-modal").classList.remove("open");
+  document.body.style.overflow="";
+  state.editingVisit=null;
+}
+
+async function saveVisit(){
+  const subjInput=$("vm-subject");
+  const businessName=subjInput.value.trim();
+  if(!businessName){toast("Subjekti është i nevojshëm","error");return}
+  const clientIdFromInput=subjInput.dataset.acid||null;
+  const locationUrl=$("vm-location").value.trim()||null;
+  const statusi=$("vm-status").value;
+  const shenime=$("vm-notes").value.trim()||null;
+  const visitDate=state.route.selectedDate;
+
+  const saveBtn=$("vm-save");
+  saveBtn.disabled=true;
+  setSync("syncing");
+
+  let targetClientId=clientIdFromInput;
+  let targetName=businessName;
+
+  // Fallback fuzzy match if user typed without picking from dropdown
+  if(!targetClientId){
+    const qNorm=normalize(businessName);
+    const match=clients.find(c=>normalize(c.business_name)===qNorm);
+    if(match){targetClientId=match.id;targetName=match.business_name}
+  }
+
+  // CASE A: existing client → INSERT visits + UPDATE clients
+  if(targetClientId){
+    const c=clients.find(x=>x.id===targetClientId);
+    if(c){
+      const patch={};
+      if(shenime!==null&&shenime!==c.general_notes)patch.general_notes=shenime;
+      if(locationUrl&&locationUrl!==c.maps_url)patch.maps_url=locationUrl;
+      if(statusi&&statusi!==c.status)patch.status=statusi;
+      if(Object.keys(patch).length){
+        patch.updated_at=nowISO();
+        const{error}=await sb.from("clients").update(patch).eq("id",targetClientId);
+        if(error){saveBtn.disabled=false;setSync("error");toast("Përditësimi i klientit dështoi: "+error.message,"error");return}
+        Object.assign(c,patch);
+      }
+    }
+  }else{
+    // CASE B: new client → INSERT clients first, then visits
+    const{data,error}=await sb.from("clients").insert({
+      business_name:businessName,
+      status:statusi||"prospect",
+      maps_url:locationUrl,
+      general_notes:shenime,
+      source:"route"
+    }).select().single();
+    if(error){saveBtn.disabled=false;setSync("error");toast("Krijimi i klientit dështoi: "+error.message,"error");return}
+    clients.push(data);
+    targetClientId=data.id;
+    targetName=data.business_name;
+  }
+
+  // INSERT or UPDATE visits row
+  const payload={
+    visit_date:visitDate,
+    client_id:targetClientId,
+    business_name:targetName,
+    location_url:locationUrl,
+    statusi,
+    shenime
+  };
+
+  if(state.editingVisit){
+    payload.updated_at=nowISO();
+    const{data,error}=await sb.from("visits").update(payload).eq("id",state.editingVisit.id).select().single();
+    if(error){saveBtn.disabled=false;setSync("error");toast("Ruajtja dështoi: "+error.message,"error");return}
+    const i=state.visits.findIndex(v=>v.id===state.editingVisit.id);
+    if(i>=0)state.visits[i]=data;
+  }else{
+    const{data,error}=await sb.from("visits").insert(payload).select().single();
+    if(error){saveBtn.disabled=false;setSync("error");toast("Ruajtja dështoi: "+error.message,"error");return}
+    state.visits.unshift(data);
+  }
+
+  setSync("");
+  closeVisitModal();
+  toast("Vizita u ruajt ✓","success");
+  populateFilterOptions(); // in case a new client was added
+  renderRoute();
+  if(state.view==="list")renderList();
+}
+
+async function deleteVisit(id){
+  if(!confirm("Hiq vizitën nga lista? (klienti nuk preket)"))return;
+  setSync("syncing");
+  const{error}=await sb.from("visits").delete().eq("id",id);
+  if(error){setSync("error");toast("Heqja dështoi: "+error.message,"error");return}
+  state.visits=state.visits.filter(v=>v.id!==id);
+  setSync("");
+  toast("Vizita u hoq","success");
+  renderRoute();
+}
+
+/* ============================================================
    SIDE PANEL
    ============================================================ */
 function openPanel(id){
@@ -649,11 +1047,14 @@ function setView(v){
   state.view=v;
   document.querySelectorAll(".view").forEach(el=>el.classList.toggle("active",el.id==="view-"+v));
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
+  const controls=document.querySelector(".controls");
+  if(controls)controls.style.display=v==="route"?"none":"block";
   render();
 }
 
 function render(){
   if(state.view==="map")renderMap();
+  else if(state.view==="route")renderRoute();
   else renderList();
 }
 
@@ -668,6 +1069,15 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&state.activeClientI
 window.openPanel=openPanel;
 window.closePanel=closePanel;
 window.savePanel=savePanel;
+window.calNav=calNav;
+window.calToday=calToday;
+window.openVisitModal=openVisitModal;
+window.closeVisitModal=closeVisitModal;
+window.saveVisit=saveVisit;
+window.deleteVisit=deleteVisit;
+
+// Click on backdrop closes visit modal
+document.getElementById("visit-modal").onclick=e=>{if(e.target.id==="visit-modal")closeVisitModal()};
 
 init();
 </script>
