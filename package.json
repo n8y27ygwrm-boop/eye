@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "ingest": "node ingest.js",
-    "ingest:dry": "node ingest.js --dry-run"
+    "ingest:dry": "node ingest.js --dry-run",
+    "geocode": "node geocode.js",
+    "geocode:dry": "node geocode.js --dry-run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
