@@ -5,7 +5,7 @@
  *   npm install @supabase/supabase-js dotenv csv-parse
  *
  * Create a .env file in the same directory:
- *   SUPABASE_URL=https://brblmltkxpblmtwcgtlm.supabase.co
+ *   SUPABASE_URL=https://your-project.supabase.co
  *   SUPABASE_SERVICE_KEY=<your service role key>
  *
  * Run:

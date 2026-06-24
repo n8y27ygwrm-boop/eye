@@ -252,6 +252,20 @@ a:hover{text-decoration:underline}
 .nlp-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .nlp-item .zh{color:var(--text-3);font-weight:400;font-size:11px;margin-left:4px}
 .nlp-item .ic{flex-shrink:0;color:var(--accent);font-size:13px}
+/* LOGIN */
+.login-overlay{position:fixed;inset:0;background:var(--bg);z-index:4000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+.login-logo{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#1D4ED8);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;margin:0 auto 16px}
+.login-title{font-size:18px;font-weight:700;color:var(--text);text-align:center;margin-bottom:4px;letter-spacing:-.2px}
+.login-sub{font-size:12.5px;color:var(--text-3);text-align:center;margin-bottom:22px}
+.login-field{margin-bottom:10px}
+.login-field label{display:block;font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+.login-err{background:#450A0A;border:1px solid var(--danger);color:#FCA5A5;border-radius:7px;padding:8px 11px;font-size:12px;margin-bottom:10px;display:none}
+.btn-login{width:100%;padding:11px;background:var(--accent);color:#fff;border-radius:7px;font-size:14px;font-weight:600;margin-top:4px;border:none;cursor:pointer}
+.btn-login:hover{background:var(--accent-2)}
+.btn-login:disabled{opacity:.6;cursor:not-allowed}
+.logout-btn{padding:4px 11px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-3);font-size:11px;font-weight:500;cursor:pointer}
+.logout-btn:hover{border-color:var(--danger);color:var(--danger)}
 </style>
 </head>
 <body>
@@ -261,9 +275,30 @@ a:hover{text-decoration:underline}
   <div class="loading-text" id="loading-text">Po lidhem me Supabase...</div>
 </div>
 
+<div class="login-overlay" id="login-overlay" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">MV</div>
+    <div class="login-title">MV CRM</div>
+    <div class="login-sub">Hyr për të vazhduar</div>
+    <div class="login-err" id="login-err"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="emri@email.com" autocomplete="email">
+    </div>
+    <div class="login-field">
+      <label>Fjalëkalimi</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')handleLogin()">
+    </div>
+    <button class="btn-login" id="login-btn" onclick="handleLogin()">Hyr</button>
+  </div>
+</div>
+
 <header class="app-header">
   <h1><span class="logo">MV</span><span><span class="sync-dot" id="sync-dot"></span>CRM</span></h1>
-  <span class="badge" id="header-count">0</span>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="logout-btn" id="logout-btn" style="display:none" onclick="handleLogout()">Dil</button>
+    <span class="badge" id="header-count">0</span>
+  </div>
 </header>
 
 <div class="controls">
@@ -325,9 +360,7 @@ a:hover{text-decoration:underline}
 /* ============================================================
    CONFIG
    ============================================================ */
-const SUPABASE_URL="https://brblmltkxpblmtwcgtlm.supabase.co";
-const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyYmxtbHRreHBibG10d2NndGxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNDAyMjksImV4cCI6MjA5NzYxNjIyOX0.UqWXBKU8fT5JWUkmpSATyqiHyigen4I80K34q4SvPUY";
-const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+let sb; // initialized in init() after fetching config from /api/config
 
 const TIRANA_CENTER=[41.3275,19.8187];
 const TIRANA_ZOOM=14;
@@ -419,12 +452,67 @@ async function updateClient(id,patch){
   return{ok:true};
 }
 
+/* ============================================================
+   AUTH
+   ============================================================ */
+async function fetchConfig(){
+  const res=await fetch("/api/config");
+  if(!res.ok)throw new Error("Config endpoint ktheu "+res.status+". Lokalisht përdor 'vercel dev'.");
+  return res.json();
+}
+
+function showLogin(){
+  $("loading").style.display="none";
+  $("login-overlay").style.display="flex";
+  $("logout-btn").style.display="none";
+  clients=[];
+  state.visits=[];
+  state.visitsLoaded=false;
+  setTimeout(()=>{const e=$("login-email");if(e)e.focus()},80);
+}
+
+async function bootApp(){
+  $("login-overlay").style.display="none";
+  $("loading").style.display="flex";
+  $("loading-text").textContent="Po ngarkoj të dhënat...";
+  $("logout-btn").style.display="";
+  await loadAllClients();
+  $("loading").style.display="none";
+  populateFilterOptions();
+  setView("map");
+}
+
+async function handleLogin(){
+  const emailEl=$("login-email"),pwdEl=$("login-password"),errEl=$("login-err"),btn=$("login-btn");
+  const email=emailEl.value.trim(),pwd=pwdEl.value;
+  if(!email||!pwd){errEl.textContent="Plotëso të dy fushat.";errEl.style.display="block";return}
+  btn.disabled=true;btn.textContent="Po hyj...";
+  errEl.style.display="none";
+  const{error}=await sb.auth.signInWithPassword({email,password:pwd});
+  if(error){
+    errEl.textContent=error.message;
+    errEl.style.display="block";
+    btn.disabled=false;btn.textContent="Hyr";
+    return;
+  }
+  await bootApp();
+}
+
+async function handleLogout(){
+  await sb.auth.signOut();
+  // onAuthStateChange fires SIGNED_OUT → showLogin()
+}
+
 async function init(){
   try{
-    await loadAllClients();
-    $("loading").style.display="none";
-    populateFilterOptions();
-    setView("map");
+    const cfg=await fetchConfig();
+    sb=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
+    sb.auth.onAuthStateChange((event)=>{
+      if(event==="SIGNED_OUT")showLogin();
+    });
+    const{data:{session}}=await sb.auth.getSession();
+    if(!session){showLogin();return;}
+    await bootApp();
   }catch(e){
     console.error(e);
     $("loading").innerHTML=`
@@ -1106,6 +1194,8 @@ window.openVisitModal=openVisitModal;
 window.closeVisitModal=closeVisitModal;
 window.saveVisit=saveVisit;
 window.deleteVisit=deleteVisit;
+window.handleLogin=handleLogin;
+window.handleLogout=handleLogout;
 
 // Click on backdrop closes visit modal
 document.getElementById("visit-modal").onclick=e=>{if(e.target.id==="visit-modal")closeVisitModal()};
