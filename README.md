@@ -73,3 +73,4 @@ decline_reason | order_value | source | maps_url | created_at | updated_at
 4. Kopjo `lat,lng` nga URL e Maps
 5. Hap kartën në app → ngjit koordinatat në side panel → ruaj
 6. Biznesi shfaqet automatikisht në hartë
+
