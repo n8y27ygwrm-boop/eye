@@ -1,9 +1,12 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'MV CRM',
   description: 'Magazina Virtuale Field Sales CRM',
+}
+
+export const viewport: Viewport = {
   themeColor: '#0F0F0F',
 }
 
