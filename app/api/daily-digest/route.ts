@@ -60,7 +60,7 @@ function formatReminder(r: AIReminder, index: number): string {
 export async function POST(req: NextRequest) {
   // Auth check
   const auth = req.headers.get('authorization') ?? ''
-  const secret = process.env.CRON_SECRET ?? ''
+  const secret = (process.env.CRON_SECRET ?? '').trim()
   if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
 // Allow GET for quick health check
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization') ?? ''
-  const secret = process.env.CRON_SECRET ?? ''
+  const secret = (process.env.CRON_SECRET ?? '').trim()
   if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
