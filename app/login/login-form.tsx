@@ -14,17 +14,34 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email || !password) { setError('Plotëso të dy fushat.'); return }
-    setLoading(true)
-    setError('')
-    const supabase = createClient()
-    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password })
-    if (authErr) {
-      setError(authErr.message)
-      setLoading(false)
+
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      setError('Gabim konfigurimi: SUPABASE_URL mungon. Kontakto adminstratorin.')
       return
     }
-    router.push('/map')
-    router.refresh()
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const supabase = createClient()
+      const { error: authErr } = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        new Promise<{ error: { message: string } }>(resolve =>
+          setTimeout(() => resolve({ error: { message: 'Lidhja me serverin dështoi (timeout). Provo sërish.' } }), 10000)
+        ),
+      ])
+      if (authErr) {
+        setError(authErr.message)
+        setLoading(false)
+        return
+      }
+      router.push('/map')
+      router.refresh()
+    } catch (err) {
+      setError('Gabim i papritur. Provo sërish.')
+      setLoading(false)
+    }
   }
 
   return (
