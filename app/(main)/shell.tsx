@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { AppProvider, useApp } from '@/contexts/AppContext'
 import SidePanel from '@/components/SidePanel'
 import VisitModal from '@/components/VisitModal'
+import AIChat from '@/components/AIChat'
 import { STATUS_DEFS } from '@/lib/types'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -114,6 +115,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
       <div className={`side-backdrop${activeClient ? ' open' : ''}`} onClick={closePanel} />
       <SidePanel />
+      <AIChat />
 
       {visitModalOpen && (
         <div className="modal-overlay-center" onClick={e => e.target === e.currentTarget && closeVisitModal()}>
