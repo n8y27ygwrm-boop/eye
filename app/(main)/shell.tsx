@@ -103,7 +103,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         {[
           { href: '/map',   icon: '🗺️', label: 'Harta'  },
           { href: '/list',  icon: '📋', label: 'Lista'  },
-          { href: '/route', icon: '🛣️', label: 'Rruga'  },
+          { href: '/route', icon: '📅', label: 'Vizita' },
         ].map(({ href, icon, label }) => (
           <Link key={href} href={href} className={`nav-btn${pathname === href ? ' active' : ''}`}>
             <span className="icon">{icon}</span>

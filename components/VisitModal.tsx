@@ -56,12 +56,13 @@ export default function VisitModal() {
     : []
 
   async function handleSave() {
-    if (!clientId || !date) return
+    const name = search.trim()
+    if (!name || !date) return
     setSaving(true)
     const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
-      client_id: clientId,
+      client_id: clientId || null,
       visit_date: date,
-      business_name: clients.find(c => c.id === clientId)?.business_name ?? '',
+      business_name: clientId ? (clients.find(c => c.id === clientId)?.business_name ?? name) : name,
       location_url: locationUrl || null,
       statusi,
       shenime: shenime || null,
@@ -126,8 +127,8 @@ export default function VisitModal() {
             </div>
           )}
           {!clientId && search && (
-            <div style={{ fontSize: '11.5px', color: 'var(--warning)', marginTop: '4px' }}>
-              Zgjidh nga lista
+            <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
+              Biznes i ri (nuk është në listë) — do të ruhet me emrin e shtypur
             </div>
           )}
         </div>
@@ -174,7 +175,7 @@ export default function VisitModal() {
         <button
           className="btn-primary"
           onClick={handleSave}
-          disabled={saving || !clientId || !date}
+          disabled={saving || !search.trim() || !date}
         >
           {saving ? 'Duke ruajtur…' : isEdit ? 'Ruaj' : 'Shto vizitën'}
         </button>

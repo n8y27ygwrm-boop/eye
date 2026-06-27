@@ -59,8 +59,8 @@ export default function SidePanel() {
           </select>
         </div>
 
-        {/* Decline reason — shown when status is declined */}
-        {field('status') === 'declined' && (
+        {/* Decline reason — shown when status is No interest */}
+        {field('status') === 'No interest' && (
           <div className="sp-field">
             <label>Arsyeja e refuzimit</label>
             <input

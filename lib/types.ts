@@ -32,16 +32,17 @@ export type Visit = {
 }
 
 export const STATUS_DEFS = [
-  { key: 'prospect',  label: 'Prospekt',  color: '#9CA3AF', cls: 's-prospect' },
-  { key: 'active',    label: 'Aktiv',     color: '#22C55E', cls: 's-active'   },
-  { key: 'inactive',  label: 'Joaktiv',   color: '#EF4444', cls: 's-inactive' },
-  { key: 'lead',      label: 'Lead',      color: '#3B82F6', cls: 's-lead'     },
-  { key: 'declined',  label: 'Refuzuar',  color: '#F59E0B', cls: 's-declined' },
+  { key: 'prospect',          label: 'Prospekt',        color: '#9CA3AF', cls: 's-prospect' },
+  { key: 'App downloaded',    label: 'App Shkarkuar',   color: '#22C55E', cls: 's-active'   },
+  { key: 'Catalog sent',      label: 'Katalog Dërguar', color: '#3B82F6', cls: 's-lead'     },
+  { key: 'Customer/Purchase', label: 'Klient/Blerje',   color: '#10B981', cls: 's-customer' },
+  { key: 'No interest',       label: 'Pa Interes',      color: '#F59E0B', cls: 's-declined' },
+  { key: 'No contact',        label: 'Pa Kontakt',      color: '#EF4444', cls: 's-inactive' },
 ] as const
 
 export type StatusDef = typeof STATUS_DEFS[number]
 
-const STATUS_MAP = Object.fromEntries(STATUS_DEFS.map(s => [s.key, s]))
+const STATUS_MAP = Object.fromEntries(STATUS_DEFS.map(s => [s.key.toLowerCase(), s]))
 
 export type StatusInfo = { key: string; label: string; color: string; cls: string }
 

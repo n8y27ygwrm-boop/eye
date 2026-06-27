@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useApp } from '@/contexts/AppContext'
 import {
-  statusInfo, fmtAlbDate, fmtDateTime, todayISO, isoDate,
-  SQ_MONTHS, SQ_DAY_SHORT, type Visit
+  statusInfo, fmtAlbDate, todayISO,
+  SQ_MONTHS, SQ_DAY_SHORT,
 } from '@/lib/types'
 
 function daysInMonth(year: number, month: number) {
@@ -12,7 +12,6 @@ function daysInMonth(year: number, month: number) {
 }
 
 function firstDayOfMonth(year: number, month: number) {
-  // Monday-first: Sunday (0) → 6, Monday (1) → 0, ...
   const d = new Date(year, month, 1).getDay()
   return (d + 6) % 7
 }
@@ -25,7 +24,6 @@ export default function RouteView() {
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [selectedDay, setSelectedDay] = useState<string>(todayISO())
 
-  // Lazy-load visits on first RouteView mount
   useEffect(() => {
     if (!visitsLoaded) loadVisits()
   }, [])
@@ -39,13 +37,10 @@ export default function RouteView() {
     else setViewMonth(m => m + 1)
   }
 
-  // Build set of days that have visits for dot indicators
   const visitDays = new Set(visits.map(v => v.visit_date ?? '').filter(Boolean))
-
   const days = daysInMonth(viewYear, viewMonth)
   const firstDow = firstDayOfMonth(viewYear, viewMonth)
 
-  // Visits for the selected day
   const dayVisits = visits
     .filter(v => v.visit_date === selectedDay)
     .sort((a, b) => (a.created_at ?? '') > (b.created_at ?? '') ? -1 : 1)
@@ -61,57 +56,69 @@ export default function RouteView() {
 
   return (
     <div className="route-wrap">
-      {/* Calendar header */}
-      <div className="cal-header">
-        <button className="cal-nav" onClick={prevMonth}>‹</button>
-        <span className="cal-title">{SQ_MONTHS[viewMonth]} {viewYear}</span>
-        <button className="cal-nav" onClick={nextMonth}>›</button>
-      </div>
-
-      {/* Day-of-week labels */}
-      <div className="cal-grid">
-        {SQ_DAY_SHORT.map(d => (
-          <div key={d} className="cal-dow">{d}</div>
-        ))}
-
-        {/* Empty cells before first day */}
-        {Array.from({ length: firstDow }).map((_, i) => (
-          <div key={`e${i}`} className="cal-cell empty" />
-        ))}
-
-        {/* Day cells */}
-        {Array.from({ length: days }, (_, i) => i + 1).map(day => {
-          const iso = isoForDay(day)
-          const isToday = iso === todayISO()
-          const isSelected = iso === selectedDay
-          const hasDot = visitDays.has(iso)
-          return (
-            <div
-              key={day}
-              className={`cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}`}
-              onClick={() => setSelectedDay(iso)}
-            >
-              <span className="cal-day-num">{day}</span>
-              {hasDot && <span className="cal-dot" />}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Selected day visits */}
-      <div className="day-panel">
-        <div className="day-panel-head">
-          <span className="day-title">{fmtAlbDate(selectedDay)}</span>
-          <button
-            className="btn-add-visit"
-            onClick={() => openVisitModal(undefined, selectedDay)}
-          >
-            + Vizitë
-          </button>
+      <div className="calendar-card">
+        <div className="cal-head">
+          <div className="cal-controls">
+            <button onClick={prevMonth}>‹</button>
+          </div>
+          <span className="cal-month">{SQ_MONTHS[viewMonth]} {viewYear}</span>
+          <div className="cal-controls">
+            <button onClick={nextMonth}>›</button>
+          </div>
         </div>
 
+        <div className="cal-weekdays">
+          {SQ_DAY_SHORT.map(d => (
+            <div key={d} className="cal-weekday">{d}</div>
+          ))}
+        </div>
+
+        <div className="cal-grid">
+          {Array.from({ length: firstDow }).map((_, i) => (
+            <div key={`e${i}`} className="cal-day other-month" />
+          ))}
+          {Array.from({ length: days }, (_, i) => i + 1).map(day => {
+            const iso = isoForDay(day)
+            const isToday = iso === todayISO()
+            const isSelected = iso === selectedDay
+            const hasDot = visitDays.has(iso)
+            const cls = [
+              'cal-day',
+              isToday ? 'today' : '',
+              isSelected ? 'selected' : '',
+              hasDot ? 'has-visits' : '',
+            ].filter(Boolean).join(' ')
+            return (
+              <div key={day} className={cls} onClick={() => setSelectedDay(iso)}>
+                {day}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="daily-log">
+        <div className="dl-head">
+          <span className="dl-title">
+            {fmtAlbDate(selectedDay)}
+            {dayVisits.length > 0 && (
+              <span className="sub">{dayVisits.length} vizitë</span>
+            )}
+          </span>
+          {dayVisits.length > 0 && (
+            <span className="dl-count">{dayVisits.length}</span>
+          )}
+        </div>
+
+        <button
+          className="add-visit-btn"
+          onClick={() => openVisitModal(undefined, selectedDay)}
+        >
+          + Shto Vizitë
+        </button>
+
         {dayVisits.length === 0 ? (
-          <div className="day-empty">Asnjë vizitë për këtë ditë.</div>
+          <div className="empty-route">Asnjë vizitë për këtë ditë.</div>
         ) : (
           dayVisits.map(v => {
             const info = statusInfo(v.statusi ?? undefined)
@@ -119,21 +126,7 @@ export default function RouteView() {
               <div key={v.id} className="visit-card">
                 <div className="vc-head">
                   <span className="vc-name">{clientName(v.client_id)}</span>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span className={`status-badge ${info.cls}`}>{info.label}</span>
-                    <button
-                      className="vc-edit"
-                      onClick={() => openVisitModal(v.id, v.visit_date ?? undefined)}
-                      title="Ndrysho"
-                    >✏️</button>
-                    <button
-                      className="vc-del"
-                      onClick={async () => {
-                        if (confirm('Fshi vizitën?')) await deleteVisit(v.id)
-                      }}
-                      title="Fshi"
-                    >🗑</button>
-                  </div>
+                  <span className={`status-badge ${info.cls}`}>{info.label}</span>
                 </div>
                 {v.shenime && <div className="vc-notes">{v.shenime}</div>}
                 {v.location_url && (
@@ -141,6 +134,22 @@ export default function RouteView() {
                     📍 Vendndodhja
                   </a>
                 )}
+                <div className="vc-actions">
+                  <button
+                    className="vc-edit"
+                    onClick={() => openVisitModal(v.id, v.visit_date ?? undefined)}
+                  >
+                    ✏️ Ndrysho
+                  </button>
+                  <button
+                    className="vc-delete"
+                    onClick={async () => {
+                      if (confirm('Fshi vizitën?')) await deleteVisit(v.id)
+                    }}
+                  >
+                    🗑 Fshi
+                  </button>
+                </div>
               </div>
             )
           })
