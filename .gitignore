@@ -19,3 +19,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+.vercel
+
+# Standalone HTML files (not part of the app)
+*.html
