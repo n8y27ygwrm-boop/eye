@@ -76,6 +76,8 @@ export async function POST(req: NextRequest) {
 ${contextBlock}`
 
   const apiKey = process.env.GEMINI_API_KEY
+  console.log('GEMINI_API_KEY exists:', !!apiKey)
+  console.log('GEMINI_API_KEY first 10 chars:', apiKey?.substring(0, 10))
   if (!apiKey) {
     console.error('[chat] GEMINI_API_KEY not set')
     return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
