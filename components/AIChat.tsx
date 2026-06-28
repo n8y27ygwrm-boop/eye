@@ -43,10 +43,19 @@ export default function AIChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, conversationHistory: messages }),
       })
-      const data = await res.json()
-      const reply = data.reply ?? 'Nuk pata përgjigje nga serveri.'
+      let data: { reply?: string; error?: string }
+      try {
+        data = await res.json()
+      } catch {
+        const text = await res.text().catch(() => '')
+        console.error('[chat] Non-JSON response:', res.status, text.slice(0, 200))
+        setMessages([...nextHistory, { role: 'assistant', content: `Gabim serveri (${res.status}). Provo sërish.` }])
+        return
+      }
+      const reply = data.reply ?? (data.error ? `Gabim: ${data.error}` : 'Nuk pata përgjigje.')
       setMessages([...nextHistory, { role: 'assistant', content: reply }])
-    } catch {
+    } catch (e) {
+      console.error('[chat] fetch error:', e)
       setMessages([...nextHistory, { role: 'assistant', content: 'Gabim në lidhje. Kontrollo lidhjen dhe provo sërish.' }])
     } finally {
       setLoading(false)

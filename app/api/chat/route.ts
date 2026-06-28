@@ -7,12 +7,13 @@ export const maxDuration = 30
 type Message = { role: 'user' | 'assistant'; content: string }
 
 function getSupabase() {
-  const url = process.env.SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_KEY!
+  const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const body = await req.json()
   const message: string = body.message ?? ''
   const conversationHistory: Message[] = body.conversationHistory ?? []
@@ -111,4 +112,8 @@ ${contextBlock}`
   const reply: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Nuk mund të gjeneroj përgjigje.'
 
   return NextResponse.json({ reply })
+  } catch (e) {
+    console.error('[chat] Unhandled error:', e)
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
 }
