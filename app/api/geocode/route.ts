@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthenticatedUser, getAdminClient } from '@/lib/supabase/server'
 
 const TIRANA_BOUNDS = { minLat: 41.28, maxLat: 41.38, minLng: 19.75, maxLng: 19.95 }
-
-function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_KEY
-  if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_KEY not set')
-  return createClient(url, key, { auth: { persistSession: false } })
-}
 
 function inTirana(lat: number, lng: number) {
   return lat >= TIRANA_BOUNDS.minLat && lat <= TIRANA_BOUNDS.maxLat
@@ -29,11 +22,18 @@ async function geocodeOne(query: string, apiKey: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const { user, error: authError } = await requireAuthenticatedUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const googleKey = process.env.GOOGLE_MAPS_API_KEY
   if (!googleKey) return NextResponse.json({ error: 'GOOGLE_MAPS_API_KEY not set' }, { status: 500 })
 
-  let sb: ReturnType<typeof adminClient>
-  try { sb = adminClient() } catch (e: any) {
+  let sb: ReturnType<typeof getAdminClient>
+  try {
+    sb = getAdminClient()
+  } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   const candidates: { id: string; business_name: string; address: string | null }[] = []
   let from = 0
   while (true) {
-    const { data, error } = await sb!
+    const { data, error } = await sb
       .from('clients')
       .select('id, business_name, address')
       .is('lat', null)
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       } else if (!inTirana(geo.lat, geo.lng)) {
         results.push({ id: c.id, name: c.business_name, status: 'out_of_bounds', lat: geo.lat, lng: geo.lng })
       } else if (!dryRun) {
-        const { error } = await sb!.from('clients')
+        const { error } = await sb.from('clients')
           .update({ lat: geo.lat, lng: geo.lng, updated_at: new Date().toISOString() })
           .eq('id', c.id)
         results.push({ id: c.id, name: c.business_name, status: error ? 'error' : 'ok', lat: geo.lat, lng: geo.lng })

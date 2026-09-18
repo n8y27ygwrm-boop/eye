@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthenticatedUser, getAdminClient } from '@/lib/supabase/server'
 import { parse } from 'csv-parse/sync'
 
 const BATCH_SIZE = 100
 
-function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_KEY
-  if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_KEY not set')
-  return createClient(url, key, { auth: { persistSession: false } })
-}
-
 export async function POST(req: NextRequest) {
-  let sb: ReturnType<typeof adminClient>
-  try { sb = adminClient() } catch (e: any) {
+  const { user, error: authError } = await requireAuthenticatedUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  let sb: ReturnType<typeof getAdminClient>
+  try {
+    sb = getAdminClient()
+  } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const existingNames = new Set<string>()
   let from = 0
   while (true) {
-    const { data, error } = await sb!.from('clients').select('business_name').range(from, from + 999)
+    const { data, error } = await sb.from('clients').select('business_name').range(from, from + 999)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     data.forEach((r: { business_name: string }) =>
       existingNames.add((r.business_name ?? '').trim().toLowerCase()))
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
   let inserted = 0
   for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
-    const { error } = await sb!.from('clients').insert(toInsert.slice(i, i + BATCH_SIZE))
+    const { error } = await sb.from('clients').insert(toInsert.slice(i, i + BATCH_SIZE))
     if (error) return NextResponse.json({ error: error.message, inserted }, { status: 500 })
     inserted += Math.min(BATCH_SIZE, toInsert.length - i)
   }
