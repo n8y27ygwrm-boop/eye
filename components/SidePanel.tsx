@@ -5,13 +5,24 @@ import { useApp } from '@/contexts/AppContext'
 import { statusInfo, STATUS_DEFS, fmtDate, type Client } from '@/lib/types'
 
 export default function SidePanel() {
-  const { activeClient: client, closePanel, updateClient, openVisitModal } = useApp()
+  const { activeClient: client, closePanel, updateClient, openVisitModal, visits, visitsLoaded, loadVisits } = useApp()
 
   const [editing, setEditing] = useState<Partial<Client>>({})
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
-  // Reset local edits whenever we switch to a different client
-  useEffect(() => { setEditing({}) }, [client?.id])
+  // Reset local edits and errors whenever we switch to a different client
+  useEffect(() => {
+    setEditing({})
+    setSaveError('')
+  }, [client?.id])
+
+  // Lazy load visits if not yet loaded
+  useEffect(() => {
+    if (client && !visitsLoaded) {
+      loadVisits()
+    }
+  }, [client?.id, visitsLoaded, loadVisits])
 
   if (!client) return null
 
@@ -27,13 +38,21 @@ export default function SidePanel() {
   async function save() {
     if (!Object.keys(editing).length) return
     setSaving(true)
-    await updateClient(client!.id, editing)
-    setEditing({})
+    setSaveError('')
+    const res = await updateClient(client!.id, editing)
     setSaving(false)
+    if (!res.ok) {
+      setSaveError(res.error?.message || 'Ruajtja e ndryshimeve dështoi')
+      return
+    }
+    setEditing({})
   }
 
   const mapsHref = client.maps_url ?? (client.lat != null ? `https://maps.google.com/?q=${client.lat},${client.lng}` : null)
   const info = statusInfo(client.status)
+
+  const clientVisits = (client ? visits.filter(v => v.client_id === client.id) : [])
+    .sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '') || (b.created_at || '').localeCompare(a.created_at || ''))
 
   return (
     <div className="side-panel open">
@@ -186,9 +205,16 @@ export default function SidePanel() {
 
         {/* Save button */}
         {Object.keys(editing).length > 0 && (
-          <button className="btn-save" onClick={save} disabled={saving}>
-            {saving ? 'Duke ruajtur…' : 'Ruaj ndryshimet'}
-          </button>
+          <div>
+            <button className="btn-save" onClick={save} disabled={saving}>
+              {saving ? 'Duke ruajtur…' : 'Ruaj ndryshimet'}
+            </button>
+            {saveError && (
+              <div style={{ color: 'var(--danger, #EF4444)', fontSize: '12px', marginTop: '6px' }}>
+                {saveError}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Add visit shortcut */}
@@ -198,6 +224,51 @@ export default function SidePanel() {
         >
           + Shto vizitë
         </button>
+
+        {/* Client Visit History */}
+        <div className="sp-section" style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Historia e Vizitave ({clientVisits.length})
+            </span>
+          </div>
+
+          {clientVisits.length === 0 ? (
+            <div style={{ fontSize: '12px', color: 'var(--text-3)', fontStyle: 'italic', padding: '6px 0' }}>
+              Nuk ka vizita të regjistruara për këtë klient.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {clientVisits.map(v => {
+                const sInfo = statusInfo(v.statusi)
+                return (
+                  <div
+                    key={v.id}
+                    style={{
+                      background: 'var(--surface-2, rgba(255,255,255,0.03))',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 10px',
+                      fontSize: '12px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 500, color: 'var(--text-1)' }}>{fmtDate(v.visit_date)}</span>
+                      <span className={`status-badge ${sInfo.cls}`} style={{ fontSize: '10px', padding: '2px 6px' }}>
+                        {sInfo.label}
+                      </span>
+                    </div>
+                    {v.shenime && (
+                      <div style={{ color: 'var(--text-2)', fontSize: '11px', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                        {v.shenime}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Meta info */}
         <div className="sp-meta-row">

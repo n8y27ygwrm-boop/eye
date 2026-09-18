@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useApp } from '@/contexts/AppContext'
 import {
   statusInfo, fmtAlbDate, todayISO,
-  SQ_MONTHS, SQ_DAY_SHORT,
+  SQ_MONTHS, SQ_DAY_SHORT, type Visit,
 } from '@/lib/types'
 
 function daysInMonth(year: number, month: number) {
@@ -49,9 +49,12 @@ export default function RouteView() {
     return `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
   }
 
-  function clientName(clientId: string | null) {
-    if (!clientId) return '—'
-    return clients.find(c => c.id === clientId)?.business_name ?? clientId
+  function getVisitDisplayName(v: Visit) {
+    if (v.client_id) {
+      const found = clients.find(c => c.id === v.client_id)
+      if (found?.business_name) return found.business_name
+    }
+    return v.business_name || '—'
   }
 
   return (
@@ -125,7 +128,7 @@ export default function RouteView() {
             return (
               <div key={v.id} className="visit-card">
                 <div className="vc-head">
-                  <span className="vc-name">{clientName(v.client_id)}</span>
+                  <span className="vc-name">{getVisitDisplayName(v)}</span>
                   <span className={`status-badge ${info.cls}`}>{info.label}</span>
                 </div>
                 {v.shenime && <div className="vc-notes">{v.shenime}</div>}

@@ -24,8 +24,8 @@ type AppCtx = {
   upsertVisit: (
     payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
     editingId?: string
-  ) => Promise<void>
-  deleteVisit: (id: string) => Promise<void>
+  ) => Promise<{ ok: true; data: Visit } | { ok: false; error: string }>
+  deleteVisit: (id: string) => Promise<{ ok: boolean; error?: string }>
 
   // Filters
   search: string
@@ -164,19 +164,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .from('clients')
       .update({ ...patch, updated_at: nowISO() })
       .eq('id', id)
-    if (error) { setSyncError(true); setSyncing(false); return { ok: false, error } }
+    if (error) {
+      setSyncError(true)
+      setSyncing(false)
+      toast('Përditësimi dështoi: ' + error.message, 'error')
+      return { ok: false, error: new Error(error.message) }
+    }
     setClients(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
     // Update active panel client if open
     setActiveClient(prev => prev?.id === id ? { ...prev, ...patch } : prev)
     setSyncing(false)
+    toast('Klienti u përditësua ✓', 'success')
     return { ok: true }
-  }, [])
+  }, [toast])
 
   // ── Upsert a visit ────────────────────────────────────────────────────────
   const upsertVisit = useCallback(async (
     payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
     editingId?: string
-  ) => {
+  ): Promise<{ ok: true; data: Visit } | { ok: false; error: string }> => {
     setSyncing(true)
     if (editingId) {
       const { data, error } = await supabase
@@ -185,29 +191,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .eq('id', editingId)
         .select()
         .single()
-      if (error) { setSyncing(false); toast('Ruajtja dështoi: ' + error.message, 'error'); return }
+      if (error) {
+        setSyncing(false)
+        const msg = error.message || 'Ruajtja dështoi'
+        toast('Ruajtja dështoi: ' + msg, 'error')
+        return { ok: false, error: msg }
+      }
       setVisits(prev => prev.map(v => v.id === editingId ? (data as Visit) : v))
+      setSyncing(false)
+      toast('Vizita u ruajt ✓', 'success')
+      return { ok: true, data: data as Visit }
     } else {
       const { data, error } = await supabase
         .from('visits')
         .insert(payload)
         .select()
         .single()
-      if (error) { setSyncing(false); toast('Ruajtja dështoi: ' + error.message, 'error'); return }
-      setVisits(prev => [data as Visit, ...prev])
+      if (error) {
+        setSyncing(false)
+        const msg = error.message || 'Shtimi i vizitës dështoi'
+        toast('Ruajtja dështoi: ' + msg, 'error')
+        return { ok: false, error: msg }
+      }
+      setVisits(prev => prev.some(v => v.id === (data as Visit).id) ? prev : [data as Visit, ...prev])
+      setSyncing(false)
+      toast('Vizita u ruajt ✓', 'success')
+      return { ok: true, data: data as Visit }
     }
-    setSyncing(false)
-    toast('Vizita u ruajt ✓', 'success')
   }, [toast])
 
   // ── Delete a visit ────────────────────────────────────────────────────────
-  const deleteVisit = useCallback(async (id: string) => {
+  const deleteVisit = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
     setSyncing(true)
     const { error } = await supabase.from('visits').delete().eq('id', id)
-    if (error) { setSyncError(true); setSyncing(false); toast('Heqja dështoi: ' + error.message, 'error'); return }
+    if (error) {
+      setSyncError(true)
+      setSyncing(false)
+      toast('Heqja dështoi: ' + error.message, 'error')
+      return { ok: false, error: error.message }
+    }
     setVisits(prev => prev.filter(v => v.id !== id))
     setSyncing(false)
     toast('Vizita u hoq', 'success')
+    return { ok: true }
   }, [toast])
 
   // ── Panel ─────────────────────────────────────────────────────────────────
@@ -251,9 +277,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const ch = supabase
       .channel('clients-rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'clients' }, ({ new: row }) => {
-        setClients(prev => [...prev, row as Client].sort((a, b) =>
-          a.business_name.localeCompare(b.business_name)
-        ))
+        const item = row as Client
+        setClients(prev => {
+          if (prev.some(c => c.id === item.id)) return prev
+          return [...prev, item].sort((a, b) => a.business_name.localeCompare(b.business_name))
+        })
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'clients' }, ({ new: row }) => {
         setClients(prev => prev.map(c => c.id === (row as Client).id ? row as Client : c))
@@ -267,7 +295,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const vch = supabase
       .channel('visits-rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'visits' }, ({ new: row }) => {
-        setVisits(prev => [row as Visit, ...prev])
+        const item = row as Visit
+        setVisits(prev => {
+          if (prev.some(v => v.id === item.id)) return prev
+          return [item, ...prev]
+        })
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'visits' }, ({ new: row }) => {
         setVisits(prev => prev.map(v => v.id === (row as Visit).id ? row as Visit : v))

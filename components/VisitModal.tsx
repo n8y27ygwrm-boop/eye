@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useApp } from '@/contexts/AppContext'
-import { STATUS_DEFS, todayISO, type Visit } from '@/lib/types'
+import { STATUS_DEFS, todayISO, normalize, type Visit } from '@/lib/types'
 
 export default function VisitModal() {
   const {
@@ -21,6 +21,7 @@ export default function VisitModal() {
   const [showDropdown, setShowDropdown] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
 
   const isEdit = !!editingVisit
 
@@ -45,6 +46,7 @@ export default function VisitModal() {
       setShenime('')
     }
     setShowDropdown(false)
+    setError('')
   }, [visitModalOpen, editingVisit?.id])
 
   if (!visitModalOpen) return null
@@ -59,24 +61,44 @@ export default function VisitModal() {
     const name = search.trim()
     if (!name || !date) return
     setSaving(true)
+    setError('')
+
+    // Conservative exact/normalized resolution: if no client selected but name matches an existing client
+    let resolvedClientId = clientId || null
+    if (!resolvedClientId) {
+      const exactMatch = clients.find(c => normalize(c.business_name) === normalize(name))
+      if (exactMatch) {
+        resolvedClientId = exactMatch.id
+      }
+    }
+
     const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
-      client_id: clientId || null,
+      client_id: resolvedClientId,
       visit_date: date,
-      business_name: clientId ? (clients.find(c => c.id === clientId)?.business_name ?? name) : name,
+      business_name: resolvedClientId ? (clients.find(c => c.id === resolvedClientId)?.business_name ?? name) : name,
       location_url: locationUrl || null,
       statusi,
       shenime: shenime || null,
     }
-    await upsertVisit(payload, editingVisit?.id)
+    const res = await upsertVisit(payload, editingVisit?.id)
     setSaving(false)
+    if (!res.ok) {
+      setError(res.error || 'Ruajtja e vizitës dështoi. Provo sërish.')
+      return
+    }
     closeVisitModal()
   }
 
   async function handleDelete() {
     if (!editingVisit) return
     setDeleting(true)
-    await deleteVisit(editingVisit.id)
+    setError('')
+    const res = await deleteVisit(editingVisit.id)
     setDeleting(false)
+    if (!res.ok) {
+      setError(res.error || 'Fshirja e vizitës dështoi.')
+      return
+    }
     closeVisitModal()
   }
 
@@ -95,6 +117,11 @@ export default function VisitModal() {
       </div>
 
       <div className="modal-body">
+        {error && (
+          <div className="modal-err" style={{ color: 'var(--danger, #EF4444)', fontSize: '12px', marginBottom: '12px', padding: '8px 10px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            {error}
+          </div>
+        )}
         {/* Date */}
         <div className="modal-field">
           <label>Data</label>
