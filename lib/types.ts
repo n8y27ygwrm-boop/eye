@@ -10,6 +10,7 @@ export type Client = {
   phone: string | null
   contact_person: string | null
   general_notes: string | null
+  next_action: string | null
   next_followup: string | null
   decline_reason: string | null
   order_value: number | null
