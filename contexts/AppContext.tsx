@@ -9,6 +9,7 @@ import {
   normalize, nowISO, statusInfo, todayISO,
   type Client, type Visit,
 } from '@/lib/types'
+import { getFollowupState, type FollowupFilter } from '@/lib/followup'
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 type ToastState = { msg: string; kind: string; key: number }
@@ -34,6 +35,8 @@ type AppCtx = {
   setZoneFilter: (s: string) => void
   statusFilter: string
   setStatusFilter: (s: string) => void
+  followupFilter: FollowupFilter
+  setFollowupFilter: (f: FollowupFilter) => void
   unlocatedOnly: boolean
   setUnlocatedOnly: (b: boolean) => void
   filteredClients: Client[]
@@ -85,6 +88,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [followupFilter, setFollowupFilter] = useState<FollowupFilter>('all')
   const [unlocatedOnly, setUnlocatedOnly] = useState(false)
 
   // Panel
@@ -263,6 +267,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const cs = (c.status ?? '').toLowerCase()
       if (cs !== statusFilter.toLowerCase()) return false
     }
+    if (followupFilter !== 'all') {
+      const fuState = getFollowupState(c.next_followup)
+      if (followupFilter === 'overdue' && fuState !== 'OVERDUE') return false
+      if (followupFilter === 'today' && fuState !== 'DUE_TODAY') return false
+      if (followupFilter === 'upcoming' && fuState !== 'UPCOMING') return false
+    }
     if (unlocatedOnly && (c.lat != null || !c.maps_url)) return false
     if (search) {
       if (!normalize(c.business_name).includes(normalize(search))) return false
@@ -320,7 +330,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: AppCtx = {
     clients, visits, visitsLoaded, loadVisits, updateClient, upsertVisit, deleteVisit,
-    search, setSearch, zoneFilter, setZoneFilter, statusFilter, setStatusFilter,
+    search, setSearch, zoneFilter, setZoneFilter, statusFilter, setStatusFilter, followupFilter, setFollowupFilter,
     unlocatedOnly, setUnlocatedOnly, filteredClients, zones,
     activeClient, openPanel, closePanel,
     editingVisit, visitModalOpen, visitModalDate, openVisitModal, closeVisitModal,

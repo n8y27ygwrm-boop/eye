@@ -2,6 +2,7 @@
 
 import { useApp } from '@/contexts/AppContext'
 import { statusInfo } from '@/lib/types'
+import { formatCardFollowupLabel } from '@/lib/followup'
 
 export default function ClientList() {
   const { clients, filteredClients, openPanel } = useApp()
@@ -27,13 +28,24 @@ export default function ClientList() {
         <>
           {filteredClients.slice(0, CAP).map(c => {
             const info = statusInfo(c.status)
+            const fuBadge = formatCardFollowupLabel(c.next_followup)
             const mapsHref = c.maps_url ?? (c.lat != null ? `https://maps.google.com/?q=${c.lat},${c.lng}` : null)
             return (
               <div key={c.id} className="card" onClick={() => openPanel(c.id)}>
                 <div className="card-main">
                   <div className="card-head">
                     <div className="card-name">{c.business_name}</div>
-                    <div className={`status-badge ${info.cls}`}>{info.label}</div>
+                    <div className="card-badges">
+                      {fuBadge && (
+                        <span
+                          className={`fu-badge ${fuBadge.cls}`}
+                          title={`Afati: ${c.next_followup}${c.next_action ? ` — ${c.next_action}` : ''}`}
+                        >
+                          {fuBadge.label}
+                        </span>
+                      )}
+                      <div className={`status-badge ${info.cls}`}>{info.label}</div>
+                    </div>
                   </div>
                   <div className="card-meta">
                     {c.zone && <span className="zone-badge">{c.zone}</span>}

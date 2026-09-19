@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { useApp } from '@/contexts/AppContext'
-import { statusInfo, STATUS_DEFS, fmtDate, type Client } from '@/lib/types'
+import { statusInfo, STATUS_DEFS, fmtDate, todayISO, type Client } from '@/lib/types'
+import { getFollowupInfo, formatFollowupDate, addDaysISO } from '@/lib/followup'
+
+type FuMode = 'view' | 'edit' | 'reschedule'
 
 export default function SidePanel() {
   const { activeClient: client, closePanel, updateClient, openVisitModal, visits, visitsLoaded, loadVisits } = useApp()
@@ -11,10 +14,22 @@ export default function SidePanel() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
+  // Follow-up operational state
+  const [fuMode, setFuMode] = useState<FuMode>('view')
+  const [fuAction, setFuAction] = useState('')
+  const [fuDate, setFuDate] = useState('')
+  const [fuRescheduleDate, setFuRescheduleDate] = useState('')
+  const [fuConfirmDone, setFuConfirmDone] = useState(false)
+  const [fuSaving, setFuSaving] = useState(false)
+  const [fuError, setFuError] = useState('')
+
   // Reset local edits and errors whenever we switch to a different client
   useEffect(() => {
     setEditing({})
     setSaveError('')
+    setFuMode('view')
+    setFuConfirmDone(false)
+    setFuError('')
   }, [client?.id])
 
   // Lazy load visits if not yet loaded
@@ -25,8 +40,6 @@ export default function SidePanel() {
   }, [client?.id, visitsLoaded, loadVisits])
 
   if (!client) return null
-
-  const merged = { ...client, ...editing }
 
   function field<K extends keyof Client>(key: K): Client[K] {
     return (editing[key] !== undefined ? editing[key] : client![key]) as Client[K]
@@ -48,11 +61,98 @@ export default function SidePanel() {
     setEditing({})
   }
 
+  // Follow-up handlers
+  function startAddFollowup() {
+    setFuAction('')
+    setFuDate(todayISO())
+    setFuError('')
+    setFuConfirmDone(false)
+    setFuMode('edit')
+  }
+
+  function startEditFollowup() {
+    setFuAction(client?.next_action || '')
+    setFuDate(client?.next_followup || todayISO())
+    setFuError('')
+    setFuConfirmDone(false)
+    setFuMode('edit')
+  }
+
+  function startReschedule() {
+    setFuRescheduleDate(client?.next_followup || todayISO())
+    setFuError('')
+    setFuConfirmDone(false)
+    setFuMode('reschedule')
+  }
+
+  async function handleSaveFollowupEdit() {
+    if (!client) return
+    const trimmedAction = fuAction.trim()
+    const trimmedDate = fuDate.trim()
+    if (!trimmedAction || !trimmedDate) {
+      setFuError('Ju lutem vendosni veprimin dhe datën e afatit.')
+      return
+    }
+    setFuSaving(true)
+    setFuError('')
+    const res = await updateClient(client.id, {
+      next_action: trimmedAction,
+      next_followup: trimmedDate,
+    })
+    setFuSaving(false)
+    if (!res.ok) {
+      setFuError(res.error?.message || 'Ruajtja e follow-up dështoi.')
+      return
+    }
+    setFuMode('view')
+  }
+
+  async function handleSaveReschedule() {
+    if (!client) return
+    const trimmedDate = fuRescheduleDate.trim()
+    if (!trimmedDate) {
+      setFuError('Ju lutem zgjidhni një datë të vlefshme për afatin.')
+      return
+    }
+    setFuSaving(true)
+    setFuError('')
+    // Reschedule modifies ONLY next_followup, preserving next_action (even if null)
+    const res = await updateClient(client.id, {
+      next_followup: trimmedDate,
+    })
+    setFuSaving(false)
+    if (!res.ok) {
+      setFuError(res.error?.message || 'Riprogramimi dështoi.')
+      return
+    }
+    setFuMode('view')
+  }
+
+  async function handleConfirmMarkDone() {
+    if (!client) return
+    setFuSaving(true)
+    setFuError('')
+    const res = await updateClient(client.id, {
+      next_action: null,
+      next_followup: null,
+    })
+    setFuSaving(false)
+    if (!res.ok) {
+      setFuError(res.error?.message || 'Shënimi i përfundimit dështoi.')
+      return
+    }
+    setFuConfirmDone(false)
+    setFuMode('view')
+  }
+
   const mapsHref = client.maps_url ?? (client.lat != null ? `https://maps.google.com/?q=${client.lat},${client.lng}` : null)
   const info = statusInfo(client.status)
 
   const clientVisits = (client ? visits.filter(v => v.client_id === client.id) : [])
     .sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '') || (b.created_at || '').localeCompare(a.created_at || ''))
+
+  const hasActiveFollowup = Boolean(client.next_followup)
+  const followupInfo = getFollowupInfo(client.next_followup)
 
   return (
     <div className="side-panel open">
@@ -147,7 +247,7 @@ export default function SidePanel() {
           </div>
         )}
 
-        {/* Lat / Lng — NEW: editable inputs to fix broken feature */}
+        {/* Lat / Lng — editable inputs */}
         <div className="sp-field sp-field-row">
           <div className="sp-field" style={{ flex: 1 }}>
             <label>Lat</label>
@@ -171,14 +271,213 @@ export default function SidePanel() {
           </div>
         </div>
 
-        {/* Next follow-up */}
-        <div className="sp-field">
-          <label>Follow-up i radhës</label>
-          <input
-            type="date"
-            value={field('next_followup') ?? ''}
-            onChange={e => set('next_followup', e.target.value || null)}
-          />
+        {/* OPERATIONAL BLOCK: NEXT ACTION */}
+        <div className="sp-followup-block">
+          <div className="sp-fu-header">
+            <span className="sp-fu-title">NEXT ACTION</span>
+            {hasActiveFollowup && fuMode === 'view' && (
+              <span className={`status-badge ${followupInfo.cls}`}>{followupInfo.badgeText}</span>
+            )}
+          </div>
+
+          {fuError && (
+            <div className="sp-fu-error">
+              {fuError}
+            </div>
+          )}
+
+          {/* MODE: EDIT / CREATE */}
+          {fuMode === 'edit' && (
+            <div className="sp-fu-editor">
+              <div className="sp-field">
+                <label>Veprimi i radhës</label>
+                <input
+                  type="text"
+                  value={fuAction}
+                  onChange={e => setFuAction(e.target.value)}
+                  placeholder="P.sh. Kontakto pronarin për ofertë"
+                  autoFocus
+                />
+              </div>
+              <div className="sp-field">
+                <label>Data e afatit</label>
+                <input
+                  type="date"
+                  value={fuDate}
+                  onChange={e => setFuDate(e.target.value)}
+                />
+              </div>
+              <div className="sp-fu-actions">
+                <button
+                  type="button"
+                  className="btn-primary sp-fu-btn"
+                  onClick={handleSaveFollowupEdit}
+                  disabled={fuSaving}
+                >
+                  {fuSaving ? 'Duke ruajtur…' : 'Ruaj follow-up'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-cancel sp-fu-btn"
+                  onClick={() => {
+                    setFuMode('view')
+                    setFuError('')
+                  }}
+                  disabled={fuSaving}
+                >
+                  Anulo
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* MODE: RESCHEDULE */}
+          {fuMode === 'reschedule' && (
+            <div className="sp-fu-reschedule">
+              <div className="sp-field">
+                <label>Zgjidh datë të re për afatin</label>
+                <input
+                  type="date"
+                  value={fuRescheduleDate}
+                  onChange={e => setFuRescheduleDate(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="sp-fu-quick-btns">
+                <button
+                  type="button"
+                  className="sp-fu-quick-btn"
+                  onClick={() => setFuRescheduleDate(todayISO())}
+                >
+                  Sot
+                </button>
+                <button
+                  type="button"
+                  className="sp-fu-quick-btn"
+                  onClick={() => setFuRescheduleDate(addDaysISO(todayISO(), 1))}
+                >
+                  Nesër
+                </button>
+                <button
+                  type="button"
+                  className="sp-fu-quick-btn"
+                  onClick={() => setFuRescheduleDate(addDaysISO(todayISO(), 3))}
+                >
+                  +3 Ditë
+                </button>
+                <button
+                  type="button"
+                  className="sp-fu-quick-btn"
+                  onClick={() => setFuRescheduleDate(addDaysISO(todayISO(), 7))}
+                >
+                  +1 Javë
+                </button>
+              </div>
+              <div className="sp-fu-actions">
+                <button
+                  type="button"
+                  className="btn-primary sp-fu-btn"
+                  onClick={handleSaveReschedule}
+                  disabled={fuSaving}
+                >
+                  {fuSaving ? 'Duke ruajtur…' : 'Riprogramo'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-cancel sp-fu-btn"
+                  onClick={() => {
+                    setFuMode('view')
+                    setFuError('')
+                  }}
+                  disabled={fuSaving}
+                >
+                  Anulo
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* MODE: VIEW */}
+          {fuMode === 'view' && (
+            <>
+              {hasActiveFollowup ? (
+                <div className="sp-fu-content">
+                  <div className="sp-fu-row">
+                    <span className="sp-fu-label">Veprimi:</span>
+                    <span className={`sp-fu-val ${!client.next_action ? 'sp-fu-empty' : ''}`}>
+                      {client.next_action || 'Veprimi nuk është përcaktuar'}
+                    </span>
+                  </div>
+
+                  <div className="sp-fu-row">
+                    <span className="sp-fu-label">Afati:</span>
+                    <span className="sp-fu-val sp-fu-due">
+                      {formatFollowupDate(client.next_followup, { withYear: true })}
+                    </span>
+                  </div>
+
+                  {fuConfirmDone ? (
+                    <div className="sp-fu-confirm-box">
+                      <div className="sp-fu-confirm-msg">A e keni përfunduar këtë ndjekje?</div>
+                      <div className="sp-fu-actions">
+                        <button
+                          type="button"
+                          className="btn-primary sp-fu-btn"
+                          onClick={handleConfirmMarkDone}
+                          disabled={fuSaving}
+                        >
+                          {fuSaving ? 'Duke përfunduar…' : '✓ Po, përfundo'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-cancel sp-fu-btn"
+                          onClick={() => setFuConfirmDone(false)}
+                          disabled={fuSaving}
+                        >
+                          Anulo
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="sp-fu-action-bar">
+                      <button
+                        type="button"
+                        className="sp-fu-tool-btn"
+                        onClick={startEditFollowup}
+                      >
+                        Ndrysho
+                      </button>
+                      <button
+                        type="button"
+                        className="sp-fu-tool-btn"
+                        onClick={startReschedule}
+                      >
+                        Riprogramo
+                      </button>
+                      <button
+                        type="button"
+                        className="sp-fu-tool-btn sp-fu-done-btn"
+                        onClick={() => setFuConfirmDone(true)}
+                      >
+                        ✓ Mark Done
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="sp-fu-empty-state">
+                  <span className="sp-fu-empty-text">Asnjë follow-up aktiv</span>
+                  <button
+                    type="button"
+                    className="sp-fu-add-btn"
+                    onClick={startAddFollowup}
+                  >
+                    + Shto follow-up
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Order value */}

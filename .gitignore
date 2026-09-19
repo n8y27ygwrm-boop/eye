@@ -23,3 +23,6 @@ Thumbs.db
 
 # Standalone HTML files (not part of the app)
 *.html
+
+# Tooling artifacts
+graphify-out/

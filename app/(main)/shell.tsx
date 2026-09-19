@@ -25,6 +25,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     search, setSearch,
     zoneFilter, setZoneFilter,
     statusFilter, setStatusFilter,
+    followupFilter, setFollowupFilter,
     unlocatedOnly, setUnlocatedOnly,
     syncing, syncError,
     toastState,
@@ -41,6 +42,14 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     chips.push({ label: `Status: ${lbl}`, clear: () => setStatusFilter('') })
   }
   if (unlocatedOnly) chips.push({ label: 'Vetëm pa koordinata', clear: () => setUnlocatedOnly(false) })
+  if (followupFilter !== 'all') {
+    const fuLabels: Record<string, string> = {
+      overdue: 'Me vonesë',
+      today: 'Sot',
+      upcoming: 'Në vijim',
+    }
+    chips.push({ label: 'Ndjekja: ' + (fuLabels[followupFilter] || followupFilter), clear: () => setFollowupFilter('all') })
+  }
 
   async function logout() {
     await createClient().auth.signOut()
@@ -83,6 +92,12 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">Të gjithë statuset</option>
               {STATUS_DEFS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+            <select value={followupFilter} onChange={e => setFollowupFilter(e.target.value as any)}>
+              <option value="all">Të gjitha ndjekjet</option>
+              <option value="overdue">Me vonesë</option>
+              <option value="today">Sot</option>
+              <option value="upcoming">Në vijim</option>
             </select>
           </div>
           {chips.length > 0 && (
