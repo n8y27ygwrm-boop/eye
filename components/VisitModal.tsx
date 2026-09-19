@@ -33,8 +33,8 @@ export default function VisitModal() {
       setLocationUrl(editingVisit.location_url ?? '')
       setStatusi(editingVisit.statusi ?? STATUS_DEFS[0].key)
       setShenime(editingVisit.shenime ?? '')
-      const cl = clients.find(c => c.id === editingVisit.client_id)
-      setSearch(cl?.business_name ?? '')
+      const cl = editingVisit.client_id ? clients.find(c => c.id === editingVisit.client_id) : null
+      setSearch(cl?.business_name ?? editingVisit.business_name ?? '')
     } else {
       setDate(visitModalDate ?? todayISO())
       // Pre-populate client from active side panel if any
