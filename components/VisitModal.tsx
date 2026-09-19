@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useApp } from '@/contexts/AppContext'
 import { STATUS_DEFS, todayISO, normalize, type Visit } from '@/lib/types'
+import { findDuplicateClient, evaluateModalSaveResult } from '@/lib/lifecycle'
 
 export default function VisitModal() {
   const {
@@ -22,6 +23,7 @@ export default function VisitModal() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [isVisitPersisted, setIsVisitPersisted] = useState(false)
 
   const isEdit = !!editingVisit
 
@@ -47,6 +49,7 @@ export default function VisitModal() {
     }
     setShowDropdown(false)
     setError('')
+    setIsVisitPersisted(false)
   }, [visitModalOpen, editingVisit?.id])
 
   if (!visitModalOpen) return null
@@ -58,15 +61,16 @@ export default function VisitModal() {
     : []
 
   async function handleSave() {
+    if (isVisitPersisted) return
     const name = search.trim()
     if (!name || !date) return
     setSaving(true)
     setError('')
 
-    // Conservative exact/normalized resolution: if no client selected but name matches an existing client
+    // Duplicate safety resolution: if no client selected but name matches an existing client
     let resolvedClientId = clientId || null
     if (!resolvedClientId) {
-      const exactMatch = clients.find(c => normalize(c.business_name) === normalize(name))
+      const exactMatch = findDuplicateClient(clients, name)
       if (exactMatch) {
         resolvedClientId = exactMatch.id
       }
@@ -82,11 +86,15 @@ export default function VisitModal() {
     }
     const res = await upsertVisit(payload, editingVisit?.id)
     setSaving(false)
-    if (!res.ok) {
-      setError(res.error || 'Ruajtja e vizitës dështoi. Provo sërish.')
+    const outcome = evaluateModalSaveResult(res)
+    if (outcome.action === 'close_modal') {
+      closeVisitModal()
       return
     }
-    closeVisitModal()
+    setError(outcome.error)
+    if (outcome.isVisitPersisted) {
+      setIsVisitPersisted(true)
+    }
   }
 
   async function handleDelete() {
@@ -155,7 +163,9 @@ export default function VisitModal() {
           )}
           {!clientId && search && (
             <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
-              Biznes i ri (nuk është në listë) — do të ruhet me emrin e shtypur
+              {findDuplicateClient(clients, search)
+                ? `Përputhet me klientin ekzistues: ${findDuplicateClient(clients, search)?.business_name}`
+                : 'Biznes i ri — do të regjistrohet automatikisht si klient me këtë vizitë'}
             </div>
           )}
         </div>
@@ -192,20 +202,28 @@ export default function VisitModal() {
       </div>
 
       <div className="modal-footer">
-        {isEdit && (
+        {isEdit && !isVisitPersisted && (
           <button className="btn-danger" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Duke fshirë…' : 'Fshi'}
           </button>
         )}
         <div style={{ flex: 1 }} />
-        <button className="btn-cancel" onClick={closeVisitModal}>Anulo</button>
-        <button
-          className="btn-primary"
-          onClick={handleSave}
-          disabled={saving || !search.trim() || !date}
-        >
-          {saving ? 'Duke ruajtur…' : isEdit ? 'Ruaj' : 'Shto vizitën'}
-        </button>
+        {isVisitPersisted ? (
+          <button className="btn-primary" onClick={closeVisitModal}>
+            Mbyll
+          </button>
+        ) : (
+          <>
+            <button className="btn-cancel" onClick={closeVisitModal}>Anulo</button>
+            <button
+              className="btn-primary"
+              onClick={handleSave}
+              disabled={saving || !search.trim() || !date}
+            >
+              {saving ? 'Duke ruajtur…' : isEdit ? 'Ruaj' : 'Shto vizitën'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

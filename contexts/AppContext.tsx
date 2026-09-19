@@ -1,5 +1,7 @@
 'use client'
 
+import { calculateNextClientStatus, findDuplicateClient, orchestrateUpsertVisit, type LifecycleDbAdapter, type UpsertVisitResult } from '@/lib/lifecycle'
+
 import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ReactNode,
@@ -25,7 +27,7 @@ type AppCtx = {
   upsertVisit: (
     payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
     editingId?: string
-  ) => Promise<{ ok: true; data: Visit } | { ok: false; error: string }>
+  ) => Promise<UpsertVisitResult>
   deleteVisit: (id: string) => Promise<{ ok: boolean; error?: string }>
 
   // Filters
@@ -182,47 +184,93 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { ok: true }
   }, [toast])
 
-  // ── Upsert a visit ────────────────────────────────────────────────────────
+  const upsertInProgressRef = useRef(false)
+
+  // ── Upsert a visit (with client lifecycle integrity & verified rollbacks) ──
   const upsertVisit = useCallback(async (
-    payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
+    payload: Omit<Visit, "id" | "created_at" | "updated_at">,
     editingId?: string
-  ): Promise<{ ok: true; data: Visit } | { ok: false; error: string }> => {
-    setSyncing(true)
-    if (editingId) {
-      const { data, error } = await supabase
-        .from('visits')
-        .update({ ...payload, updated_at: nowISO() })
-        .eq('id', editingId)
-        .select()
-        .single()
-      if (error) {
-        setSyncing(false)
-        const msg = error.message || 'Ruajtja dështoi'
-        toast('Ruajtja dështoi: ' + msg, 'error')
-        return { ok: false, error: msg }
-      }
-      setVisits(prev => prev.map(v => v.id === editingId ? (data as Visit) : v))
-      setSyncing(false)
-      toast('Vizita u ruajt ✓', 'success')
-      return { ok: true, data: data as Visit }
-    } else {
-      const { data, error } = await supabase
-        .from('visits')
-        .insert(payload)
-        .select()
-        .single()
-      if (error) {
-        setSyncing(false)
-        const msg = error.message || 'Shtimi i vizitës dështoi'
-        toast('Ruajtja dështoi: ' + msg, 'error')
-        return { ok: false, error: msg }
-      }
-      setVisits(prev => prev.some(v => v.id === (data as Visit).id) ? prev : [data as Visit, ...prev])
-      setSyncing(false)
-      toast('Vizita u ruajt ✓', 'success')
-      return { ok: true, data: data as Visit }
+  ): Promise<UpsertVisitResult> => {
+    if (upsertInProgressRef.current) {
+      return { ok: false, kind: "failure", error: "Një veprim është në proces. Ju lutem prisni." }
     }
-  }, [toast])
+    upsertInProgressRef.current = true
+    setSyncing(true)
+
+    try {
+      const adapter: LifecycleDbAdapter = {
+        createClient: async client => {
+          const { data, error } = await supabase.from("clients").insert(client).select().single()
+          return { data: data as Client | null, error }
+        },
+        deleteClient: async clientId => {
+          const { error } = await supabase.from("clients").delete().eq("id", clientId)
+          return { error }
+        },
+        updateClientStatus: async (clientId, status, updatedAt) => {
+          const { error } = await supabase.from("clients").update({ status, updated_at: updatedAt }).eq("id", clientId)
+          return { error }
+        },
+        createVisit: async visit => {
+          const { data, error } = await supabase.from("visits").insert(visit).select().single()
+          return { data: data as Visit | null, error }
+        },
+        updateVisit: async (id, patch) => {
+          const { data, error } = await supabase.from("visits").update(patch).eq("id", id).select().single()
+          return { data: data as Visit | null, error }
+        },
+        deleteVisit: async visitId => {
+          const { error } = await supabase.from("visits").delete().eq("id", visitId)
+          return { error }
+        },
+      }
+
+      const result = await orchestrateUpsertVisit({
+        payload,
+        editingId,
+        clients,
+        adapter,
+        nowISO,
+      })
+
+      if (result.kind === "success") {
+        if (result.client) {
+          const newCl = result.client
+          setClients(prev => {
+            if (prev.some(c => c.id === newCl.id)) return prev
+            return [...prev, newCl].sort((a, b) => a.business_name.localeCompare(b.business_name))
+          })
+        }
+        if (result.clientStatusUpdated && result.newStatus && (payload.client_id || result.data.client_id)) {
+          const clId = payload.client_id || result.data.client_id!
+          setClients(prev => prev.map(c => c.id === clId ? { ...c, status: result.newStatus!, updated_at: nowISO() } : c))
+          setActiveClient(prev => prev?.id === clId ? { ...prev, status: result.newStatus!, updated_at: nowISO() } : prev)
+        }
+        setVisits(prev => editingId ? prev.map(v => v.id === editingId ? result.data : v) : [result.data, ...prev.filter(v => v.id !== result.data.id)])
+        toast(result.client ? "Vizita dhe klienti i ri u ruajtën ✓" : "Vizita u ruajt ✓", "success")
+      } else if (result.kind === "failure") {
+        toast("Veprimi dështoi: " + result.error, "error")
+      } else if (result.kind === "partial") {
+        if (result.visit) {
+          const v = result.visit
+          setVisits(prev => editingId ? prev.map(x => x.id === editingId ? v : x) : [v, ...prev.filter(x => x.id !== v.id)])
+        }
+        if (result.client) {
+          const cl = result.client
+          setClients(prev => {
+            if (prev.some(c => c.id === cl.id)) return prev
+            return [...prev, cl].sort((a, b) => a.business_name.localeCompare(b.business_name))
+          })
+        }
+        toast(result.message, "warning")
+      }
+
+      return result
+    } finally {
+      upsertInProgressRef.current = false
+      setSyncing(false)
+    }
+  }, [clients, toast])
 
   // ── Delete a visit ────────────────────────────────────────────────────────
   const deleteVisit = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
