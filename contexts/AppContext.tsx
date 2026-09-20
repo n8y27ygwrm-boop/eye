@@ -12,6 +12,7 @@ import {
   type Client, type Visit,
 } from '@/lib/types'
 import { getFollowupState, type FollowupFilter } from '@/lib/followup'
+import { enqueueVisitReminder } from '@/lib/ai/client-enqueue'
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 type ToastState = { msg: string; kind: string; key: number }
@@ -248,6 +249,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         setVisits(prev => editingId ? prev.map(v => v.id === editingId ? result.data : v) : [result.data, ...prev.filter(v => v.id !== result.data.id)])
         toast(result.client ? "Vizita dhe klienti i ri u ruajtën ✓" : "Vizita u ruajt ✓", "success")
+
+        // Observable, resilient AI reminder extraction (visit persistence is already complete and primary)
+        enqueueVisitReminder(result.data.id)
+          .then(res => {
+            if (!res.ok && res.warning) {
+              toast(res.warning, "warning")
+            }
+          })
+          .catch(() => {
+            // Guard against any client exceptions
+          })
       } else if (result.kind === "failure") {
         toast("Veprimi dështoi: " + result.error, "error")
       } else if (result.kind === "partial") {

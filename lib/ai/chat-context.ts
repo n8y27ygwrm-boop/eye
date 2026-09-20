@@ -1,0 +1,117 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { normalize, getTiranaDate } from '../types'
+
+export type CompactCRMContext = {
+  text: string
+  matchedClientName?: string
+}
+
+export async function buildCompactCRMContext(
+  sb: SupabaseClient,
+  userMessage: string,
+  today: string = getTiranaDate()
+): Promise<CompactCRMContext> {
+  const normMessage = normalize(userMessage)
+
+  // 1. Fetch lightweight overview data in parallel
+  const [clientsRes, visitsTodayRes, remindersRes] = await Promise.all([
+    sb.from('clients').select('id, business_name, status, zone, next_action, next_followup'),
+    sb.from('visits').select('business_name, statusi, shenime').eq('visit_date', today),
+    sb.from('ai_reminders').select('business_name, action_type, description, priority, due_date').eq('is_dismissed', false).limit(15),
+  ])
+
+  const allClients = clientsRes.data ?? []
+  const visitsToday = visitsTodayRes.data ?? []
+  const reminders = remindersRes.data ?? []
+
+  // Aggregate pipeline status distribution
+  const statusCounts: Record<string, number> = {}
+  for (const c of allClients) {
+    const s = c.status ?? 'prospect'
+    statusCounts[s] = (statusCounts[s] ?? 0) + 1
+  }
+
+  // Filter follow-up states
+  const overdueClients = allClients.filter(c => c.next_followup && c.next_followup < today)
+  const dueTodayClients = allClients.filter(c => c.next_followup && c.next_followup === today)
+  const upcomingClients = allClients.filter(c => c.next_followup && c.next_followup > today).slice(0, 10)
+
+  // 2. Targeted Entity Matching: Check if user mentions a specific client
+  let matchedClient: typeof allClients[0] | null = null
+  for (const c of allClients) {
+    const normName = normalize(c.business_name)
+    if (normName.length >= 3 && normMessage.includes(normName)) {
+      matchedClient = c
+      break
+    }
+  }
+
+  let clientSpecificHistoryBlock = ''
+  if (matchedClient) {
+    // Fetch last 3 visits for this specific client
+    const { data: clientVisits } = await sb
+      .from('visits')
+      .select('visit_date, statusi, shenime')
+      .eq('client_id', matchedClient.id)
+      .order('visit_date', { ascending: false })
+      .limit(3)
+
+    const visitLines = (clientVisits ?? []).map(
+      v => `    * ${v.visit_date} [${v.statusi ?? 'vizitë'}]: ${v.shenime || '(pa shënime)'}`
+    )
+
+    clientSpecificHistoryBlock = [
+      '',
+      `=== SPECIFIC CLIENT DETAILS FOR "${matchedClient.business_name}" ===`,
+      `Pipeline Status: ${matchedClient.status ?? 'prospect'}`,
+      `Zone: ${matchedClient.zone ?? 'N/A'}`,
+      `Next Action: ${matchedClient.next_action || 'none'}`,
+      `Next Follow-up Due: ${matchedClient.next_followup || 'none'}`,
+      `Recent Visit Notes:`,
+      visitLines.length > 0 ? visitLines.join('\n') : '    (asnjë vizitë e mëparshme)',
+      '==================================================',
+    ].join('\n')
+  }
+
+  // 3. Assemble compact text
+  const lines: string[] = [
+    `CRM Overview as of ${today}:`,
+    `Total Clients: ${allClients.length}`,
+    'Pipeline Breakdown:',
+    ...Object.entries(statusCounts).map(([k, v]) => `  - ${k}: ${v}`),
+    '',
+    `Overdue Follow-ups (${overdueClients.length}):`,
+    overdueClients.length > 0
+      ? overdueClients.slice(0, 10).map(c => `  - ${c.business_name} (due ${c.next_followup}): ${c.next_action || 'Ndiq klientin'}`).join('\n')
+      : '  (none)',
+    '',
+    `Due Today Follow-ups (${dueTodayClients.length}):`,
+    dueTodayClients.length > 0
+      ? dueTodayClients.map(c => `  - ${c.business_name}: ${c.next_action || 'Ndiq klientin'}`).join('\n')
+      : '  (none)',
+    '',
+    `Upcoming Follow-ups (${upcomingClients.length}):`,
+    upcomingClients.length > 0
+      ? upcomingClients.map(c => `  - ${c.business_name} (due ${c.next_followup}): ${c.next_action || 'Ndiq klientin'}`).join('\n')
+      : '  (none)',
+    '',
+    `Today's Visits (${visitsToday.length}):`,
+    visitsToday.length > 0
+      ? visitsToday.map(v => `  - ${v.business_name}${v.statusi ? ` [${v.statusi}]` : ''}${v.shenime ? `: ${v.shenime.slice(0, 100)}` : ''}`).join('\n')
+      : '  (asnjë vizitë sot)',
+    '',
+    `Active AI Reminders (${reminders.length}):`,
+    reminders.length > 0
+      ? reminders.map(r => `  - [${r.priority ?? 'medium'}] ${r.business_name}: ${r.description}${r.due_date ? ` (due ${r.due_date})` : ''}`).join('\n')
+      : '  (none)',
+  ]
+
+  if (clientSpecificHistoryBlock) {
+    lines.push(clientSpecificHistoryBlock)
+  }
+
+  return {
+    text: lines.join('\n'),
+    matchedClientName: matchedClient?.business_name,
+  }
+}

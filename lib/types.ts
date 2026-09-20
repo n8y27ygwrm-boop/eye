@@ -69,6 +69,15 @@ export function isoDate(d: Date): string {
 }
 export const todayISO = () => isoDate(new Date())
 
+export function getTiranaDate(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Tirane",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d)
+}
+
 export function fmtAlbDate(d: Date | string): string {
   const dt = d instanceof Date ? d : new Date(d)
   return `${SQ_DAY_FULL[dt.getDay()]}, ${dt.getDate()} ${SQ_MONTHS[dt.getMonth()]} ${dt.getFullYear()}`
@@ -84,3 +93,5 @@ export function fmtDateTime(d: string | null | undefined): string {
   return isNaN(dt.getTime()) ? d : dt.toLocaleString('sq-AL', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
 }
 export const nowISO = () => new Date().toISOString()
+
+export type { VisitAIExtraction, ActionType, ReminderPriority, VisitExtractionInput } from "./ai/types"

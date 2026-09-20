@@ -24,8 +24,10 @@ export type AIReminder = {
   raw_trigger: string
 }
 
-const GEMINI_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent'
+function getGeminiUrl(): string {
+  const model = process.env.GEMINI_MODEL || "gemini-flash-latest";
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+}
 
 export async function analyzeVisitNotes(
   visits: VisitWithClient[]
@@ -109,7 +111,7 @@ Each object must have exactly these fields:
 
   let raw: string | undefined
   try {
-    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    const res = await fetch(`${getGeminiUrl()}?key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -123,7 +125,7 @@ Each object must have exactly these fields:
 
     if (!res.ok) {
       const err = await res.text()
-      console.error(`[gemini] API error ${res.status}:`, err)
+      console.error(`[gemini] API error ${res.status}`)
       return []
     }
 
@@ -131,7 +133,7 @@ Each object must have exactly these fields:
     raw = json?.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!raw) {
-      console.error('[gemini] Empty response from API:', JSON.stringify(json))
+      console.error('[gemini] Empty response from API')
       return []
     }
 
@@ -148,7 +150,7 @@ Each object must have exactly these fields:
     })
   } catch (e) {
     console.error('[gemini] Failed to parse response:', e)
-    if (raw) console.error('[gemini] Raw text was:', raw.slice(0, 500))
+    // Sanitized: do not log raw response contents
     return []
   }
 }
