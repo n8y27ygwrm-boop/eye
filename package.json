@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/lifecycle.test.ts test/ai-operational.test.ts",
+    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/lifecycle.test.ts test/ai-operational.test.ts test/user-isolation.test.ts",
     "start": "next start",
     "ingest": "node ingest.js",
     "ingest:dry": "node ingest.js --dry-run",

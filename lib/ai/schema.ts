@@ -21,6 +21,10 @@ export const REMINDER_STRICT_JSON_SCHEMA = {
       type: ['string', 'null'],
       description: 'ISO date YYYY-MM-DD if explicit or relative date was mentioned, otherwise null',
     },
+    dueTime: {
+      type: ['string', 'null'],
+      description: '24-hour clock time HH:MM (00:00 through 23:59) if an exact time was explicitly stated, otherwise null',
+    },
     priority: {
       type: ['string', 'null'],
       enum: ['high', 'medium', 'low', null],
@@ -40,6 +44,7 @@ export const REMINDER_STRICT_JSON_SCHEMA = {
     'actionType',
     'description',
     'dueDate',
+    'dueTime',
     'priority',
     'rawTrigger',
     'summary',
@@ -48,12 +53,14 @@ export const REMINDER_STRICT_JSON_SCHEMA = {
 } as const
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/
+const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/
 
 export const RawExtractionSchema = z.object({
   hasReminder: z.boolean(),
   actionType: z.enum(['call', 'meeting', 'deliver', 'follow_up']).nullish(),
   description: z.string().nullish(),
   dueDate: z.string().nullish(),
+  dueTime: z.string().nullish(),
   priority: z.enum(['high', 'medium', 'low']).nullish(),
   rawTrigger: z.string().nullish(),
   summary: z.string().nullish(),
@@ -77,6 +84,7 @@ export function validateAndNormalizeExtraction(raw: unknown): VisitAIExtraction 
         actionType: null,
         description: null,
         dueDate: null,
+        dueTime: null,
         priority: null,
         rawTrigger: null,
         summary: null,
@@ -93,6 +101,7 @@ export function validateAndNormalizeExtraction(raw: unknown): VisitAIExtraction 
       actionType: null,
       description: null,
       dueDate: null,
+      dueTime: null,
       priority: null,
       rawTrigger: null,
       summary: null,
@@ -108,6 +117,15 @@ export function validateAndNormalizeExtraction(raw: unknown): VisitAIExtraction 
     }
   }
 
+  // Sanitize dueTime: must be valid 24-hour HH:MM (00:00 through 23:59)
+  let validDueTime: string | null = null
+  if (typeof parsed.dueTime === 'string') {
+    const trimmedTime = parsed.dueTime.trim()
+    if (timeRegex.test(trimmedTime)) {
+      validDueTime = trimmedTime
+    }
+  }
+
   const cleanDescription = (parsed.description ?? parsed.summary ?? '').trim()
   if (!cleanDescription) {
     return {
@@ -115,6 +133,7 @@ export function validateAndNormalizeExtraction(raw: unknown): VisitAIExtraction 
       actionType: null,
       description: null,
       dueDate: null,
+      dueTime: null,
       priority: null,
       rawTrigger: null,
       summary: null,
@@ -126,6 +145,7 @@ export function validateAndNormalizeExtraction(raw: unknown): VisitAIExtraction 
     actionType: (parsed.actionType as ActionType) ?? 'follow_up',
     description: cleanDescription.slice(0, 200),
     dueDate: validDueDate,
+    dueTime: validDueTime,
     priority: (parsed.priority as ReminderPriority) ?? 'medium',
     rawTrigger: parsed.rawTrigger ? parsed.rawTrigger.trim().slice(0, 300) : null,
     summary: parsed.summary ? parsed.summary.trim().slice(0, 200) : null,

@@ -5,6 +5,7 @@ export type ReminderPriority = 'high' | 'medium' | 'low'
 
 export type VisitExtractionInput = {
   visit_id: string
+  owner_user_id?: string
   client_id: string | null
   business_name: string
   visit_date: string
@@ -19,6 +20,7 @@ export type VisitAIExtraction = {
   actionType: ActionType | null
   description: string | null
   dueDate: string | null
+  dueTime: string | null
   priority: ReminderPriority | null
   rawTrigger: string | null
   summary: string | null

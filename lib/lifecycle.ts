@@ -215,6 +215,16 @@ export async function orchestrateUpsertVisit(params: {
     ? clients.find(c => c.id === resolvedClientId)
     : undefined
 
+  // Cross-user relationship validation: if client_id is supplied, verify it belongs to user
+  if (resolvedClientId) {
+    if (!matchedClient) {
+      return { ok: false, kind: "failure", error: "Klienti i zgjedhur nuk ekziston ose nuk ju përket juve." }
+    }
+    if (payload.owner_user_id && matchedClient.owner_user_id && matchedClient.owner_user_id !== payload.owner_user_id) {
+      return { ok: false, kind: "failure", error: "Klienti i zgjedhur nuk ju përket juve." }
+    }
+  }
+
   // Duplicate safety resolution: if no client_id was provided, check if business_name matches an existing client
   if (!resolvedClientId && payload.business_name) {
     matchedClient = findDuplicateClient(clients, payload.business_name)
@@ -261,6 +271,7 @@ export async function orchestrateUpsertVisit(params: {
       status: initialStatus,
       source: "field_visit",
       maps_url: payload.location_url || null,
+      ...(payload.owner_user_id ? { owner_user_id: payload.owner_user_id } : {}),
     }
 
     // Step 2.1: Create client

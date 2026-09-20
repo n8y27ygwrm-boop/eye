@@ -9,15 +9,26 @@ export type CompactCRMContext = {
 export async function buildCompactCRMContext(
   sb: SupabaseClient,
   userMessage: string,
-  today: string = getTiranaDate()
+  today: string = getTiranaDate(),
+  ownerUserId?: string
 ): Promise<CompactCRMContext> {
   const normMessage = normalize(userMessage)
 
-  // 1. Fetch lightweight overview data in parallel
+  let clientsQuery = sb.from('clients').select('id, business_name, status, zone, next_action, next_followup')
+  let visitsTodayQuery = sb.from('visits').select('business_name, statusi, shenime').eq('visit_date', today)
+  let remindersQuery = sb.from('ai_reminders').select('business_name, action_type, description, priority, due_date, due_time').eq('is_dismissed', false).limit(15)
+
+  if (ownerUserId) {
+    clientsQuery = clientsQuery.eq('owner_user_id', ownerUserId)
+    visitsTodayQuery = visitsTodayQuery.eq('owner_user_id', ownerUserId)
+    remindersQuery = remindersQuery.eq('owner_user_id', ownerUserId)
+  }
+
+  // 1. Fetch lightweight overview data in parallel (strictly owner-scoped)
   const [clientsRes, visitsTodayRes, remindersRes] = await Promise.all([
-    sb.from('clients').select('id, business_name, status, zone, next_action, next_followup'),
-    sb.from('visits').select('business_name, statusi, shenime').eq('visit_date', today),
-    sb.from('ai_reminders').select('business_name, action_type, description, priority, due_date').eq('is_dismissed', false).limit(15),
+    clientsQuery,
+    visitsTodayQuery,
+    remindersQuery,
   ])
 
   const allClients = clientsRes.data ?? []
@@ -48,11 +59,17 @@ export async function buildCompactCRMContext(
 
   let clientSpecificHistoryBlock = ''
   if (matchedClient) {
-    // Fetch last 3 visits for this specific client
-    const { data: clientVisits } = await sb
+    // Fetch last 3 visits for this specific client (owner-scoped)
+    let clientVisitsQuery = sb
       .from('visits')
       .select('visit_date, statusi, shenime')
       .eq('client_id', matchedClient.id)
+
+    if (ownerUserId) {
+      clientVisitsQuery = clientVisitsQuery.eq('owner_user_id', ownerUserId)
+    }
+
+    const { data: clientVisits } = await clientVisitsQuery
       .order('visit_date', { ascending: false })
       .limit(3)
 
@@ -102,7 +119,17 @@ export async function buildCompactCRMContext(
     '',
     `Active AI Reminders (${reminders.length}):`,
     reminders.length > 0
-      ? reminders.map(r => `  - [${r.priority ?? 'medium'}] ${r.business_name}: ${r.description}${r.due_date ? ` (due ${r.due_date})` : ''}`).join('\n')
+      ? reminders.map(r => {
+          let dueStr = ''
+          if (r.due_date && r.due_time) {
+            dueStr = ` (due ${r.due_date} ${r.due_time})`
+          } else if (r.due_date) {
+            dueStr = ` (due ${r.due_date})`
+          } else if (r.due_time) {
+            dueStr = ` (due ${r.due_time})`
+          }
+          return `  - [${r.priority ?? 'medium'}] ${r.business_name}: ${r.description}${dueStr}`
+        }).join('\n')
       : '  (none)',
   ]
 

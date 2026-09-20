@@ -1,5 +1,6 @@
 export type Client = {
   id: string
+  owner_user_id?: string
   business_name: string
   status: string | null
   business_type: string | null
@@ -22,6 +23,7 @@ export type Client = {
 
 export type Visit = {
   id: string
+  owner_user_id?: string
   visit_date: string
   client_id: string | null
   business_name: string

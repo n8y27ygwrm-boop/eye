@@ -41,13 +41,14 @@ export async function POST(req: NextRequest) {
   const limit = body.limit ?? null
   const dryRun = body.dryRun ?? false
 
-  // Fetch clients without coordinates
+  // Fetch clients without coordinates scoped to authenticated user
   const candidates: { id: string; business_name: string; address: string | null }[] = []
   let from = 0
   while (true) {
     const { data, error } = await sb
       .from('clients')
       .select('id, business_name, address')
+      .eq('owner_user_id', user.id)
       .is('lat', null)
       .order('business_name')
       .range(from, from + 999)
@@ -72,6 +73,7 @@ export async function POST(req: NextRequest) {
         const { error } = await sb.from('clients')
           .update({ lat: geo.lat, lng: geo.lng, updated_at: new Date().toISOString() })
           .eq('id', c.id)
+          .eq('owner_user_id', user.id)
         results.push({ id: c.id, name: c.business_name, status: error ? 'error' : 'ok', lat: geo.lat, lng: geo.lng })
       } else {
         results.push({ id: c.id, name: c.business_name, status: 'dry_run', lat: geo.lat, lng: geo.lng })

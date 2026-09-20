@@ -2,6 +2,7 @@ import { Inngest } from 'inngest'
 
 export type VisitSavedEventPayload = {
   visitId: string
+  ownerUserId: string
 }
 
 export type EyeEvents = {

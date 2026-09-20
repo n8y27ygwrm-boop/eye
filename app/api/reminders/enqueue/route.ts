@@ -30,11 +30,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Visit not found or inaccessible' }, { status: 404 })
     }
 
-    // Emit canonical minimal event to Inngest (strictly server-side)
+    // Emit canonical minimal event to Inngest with authenticated owner identity (strictly server-side)
     await inngest.send({
       name: 'eye/visit.saved',
       data: {
         visitId: visit.id,
+        ownerUserId: user.id,
       },
     })
 

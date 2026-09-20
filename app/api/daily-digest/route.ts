@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { analyzeVisitNotes, type VisitWithClient, type AIReminder } from '@/lib/gemini'
+import { getAdminClient } from '@/lib/supabase/server'
 
 // Called by Vercel Cron every evening at 20:00 Albania time (18:00 UTC)
 // Also callable manually: POST /api/daily-digest with Authorization: Bearer CRON_SECRET
@@ -8,10 +7,14 @@ import { analyzeVisitNotes, type VisitWithClient, type AIReminder } from '@/lib/
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-function getSupabase() {
-  const url = process.env.SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_KEY!
-  return createClient(url, key, { auth: { persistSession: false } })
+type PersistedReminder = {
+  id: string
+  business_name: string
+  action_type: 'call' | 'meeting' | 'deliver' | 'follow_up'
+  description: string
+  due_date: string | null
+  due_time: string | null
+  priority: 'high' | 'medium' | 'low'
 }
 
 async function sendTelegram(message: string): Promise<void> {
@@ -36,24 +39,35 @@ async function sendTelegram(message: string): Promise<void> {
   }
 }
 
-function formatReminder(r: AIReminder, index: number): string {
-  const icons: Record<AIReminder['action_type'], string> = {
+function formatDue(dueDate: string | null, dueTime: string | null): string | null {
+  if (dueDate && dueTime) return `${dueDate} · ${dueTime}`
+  if (dueDate) return dueDate
+  if (dueTime) return dueTime
+  return null
+}
+
+function formatReminder(r: PersistedReminder, index: number): string {
+  const icons: Record<string, string> = {
     call: '📞',
     meeting: '🤝',
     deliver: '📦',
     follow_up: '🔄',
   }
-  const priorityMark: Record<AIReminder['priority'], string> = {
+  const priorityMark: Record<string, string> = {
     high: '🔴',
     medium: '🟡',
     low: '🟢',
   }
 
+  const icon = icons[r.action_type] || '🔄'
+  const mark = priorityMark[r.priority] || '🟡'
+
   const lines = [
-    `${index}. ${icons[r.action_type]} <b>${r.business_name}</b> ${priorityMark[r.priority]}`,
+    `${index}. ${icon} <b>${r.business_name}</b> ${mark}`,
     `   ${r.description}`,
   ]
-  if (r.due_date) lines.push(`   📅 Afati: ${r.due_date}`)
+  const due = formatDue(r.due_date, r.due_time)
+  if (due) lines.push(`   📅 Afati: ${due}`)
   return lines.join('\n')
 }
 
@@ -66,30 +80,27 @@ export async function POST(req: NextRequest) {
   }
 
   const today = new Date().toISOString().slice(0, 10)
-  const sb = getSupabase()
+  // Private V1 Constraint: Digest is strictly scoped to the verified primary owner
+  const targetOwnerId = (process.env.DAILY_DIGEST_OWNER_ID || 'a1026b88-6a25-4548-a055-cf12ea436bf8').trim()
 
-  // Fetch today's visits joined with client data
-  const { data: visits, error } = await sb
+  let sb: ReturnType<typeof getAdminClient>
+  try {
+    sb = getAdminClient()
+  } catch (err: any) {
+    console.error('[daily-digest] Failed to initialize Supabase admin client:', err.message)
+    return NextResponse.json({ error: 'Supabase configuration error' }, { status: 500 })
+  }
+
+  // 1. Fetch today's visits for visit count strictly scoped to target owner
+  const { data: visits, error: visitsError } = await sb
     .from('visits')
-    .select(`
-      id,
-      visit_date,
-      business_name,
-      shenime,
-      client_id,
-      clients (
-        id,
-        business_name,
-        business_type,
-        zone,
-        status
-      )
-    `)
+    .select('id, visit_date, business_name, shenime')
     .eq('visit_date', today)
+    .eq('owner_user_id', targetOwnerId)
 
-  if (error) {
-    console.error('[daily-digest] Supabase error:', error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  if (visitsError) {
+    console.error('[daily-digest] Supabase error fetching visits:', visitsError.message)
+    return NextResponse.json({ error: visitsError.message }, { status: 500 })
   }
 
   if (!visits || visits.length === 0) {
@@ -97,23 +108,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, visits: 0, reminders: 0 })
   }
 
-  const visitsWithNotes = visits.filter(v => v.shenime && v.shenime.trim())
+  // 2. Query persisted ai_reminders for today's visits (single source of truth) scoped to target owner
+  const visitIds = visits.map(v => v.id)
+  const { data: remindersData, error: remindersError } = await sb
+    .from('ai_reminders')
+    .select('id, business_name, action_type, description, due_date, due_time, priority')
+    .in('visit_id', visitIds)
+    .eq('owner_user_id', targetOwnerId)
+    .eq('is_dismissed', false)
 
-  if (visitsWithNotes.length === 0) {
-    await sendTelegram(
-      `📋 <b>MV CRM — ${today}</b>\n\n${visits.length} vizita të regjistruara, por asnjë me shënime.`
-    )
-    return NextResponse.json({ ok: true, visits: visits.length, reminders: 0 })
+  if (remindersError) {
+    console.error('[daily-digest] Supabase error fetching reminders:', remindersError.message)
+    return NextResponse.json({ error: remindersError.message }, { status: 500 })
   }
 
-  // Run Gemini analysis
-  const reminders = await analyzeVisitNotes(visits as unknown as VisitWithClient[])
+  const reminders = (remindersData ?? []) as PersistedReminder[]
 
-  // Build Telegram message
   if (reminders.length === 0) {
-    await sendTelegram(
-      `📋 <b>MV CRM — ${today}</b>\n\n✅ ${visits.length} vizita të analizuara. Asnjë veprim i kërkuar.`
-    )
+    const visitsWithNotes = visits.filter(v => v.shenime && v.shenime.trim())
+    const message = visitsWithNotes.length === 0
+      ? `📋 <b>MV CRM — ${today}</b>\n\n${visits.length} vizita të regjistruara, por asnjë me shënime.`
+      : `📋 <b>MV CRM — ${today}</b>\n\n✅ ${visits.length} vizita të analizuara. Asnjë veprim i kërkuar.`
+    await sendTelegram(message)
     return NextResponse.json({ ok: true, visits: visits.length, reminders: 0 })
   }
 

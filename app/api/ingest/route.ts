@@ -38,11 +38,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `CSV parse error: ${e.message}` }, { status: 400 })
   }
 
-  // Fetch existing names for deduplication
+  // Fetch existing names for deduplication scoped to the authenticated user
   const existingNames = new Set<string>()
   let from = 0
   while (true) {
-    const { data, error } = await sb.from('clients').select('business_name').range(from, from + 999)
+    const { data, error } = await sb
+      .from('clients')
+      .select('business_name')
+      .eq('owner_user_id', user.id)
+      .range(from, from + 999)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     data.forEach((r: { business_name: string }) =>
       existingNames.add((r.business_name ?? '').trim().toLowerCase()))
@@ -63,7 +67,7 @@ export async function POST(req: NextRequest) {
     const lc = name.toLowerCase()
     if (existingNames.has(lc)) { dupSkipped++; continue }
 
-    const payload: Record<string, unknown> = { business_name: name, address, status: 'prospect', zone: 'Z4', source: 'field_pdf_import' }
+    const payload: Record<string, unknown> = { business_name: name, address, status: 'prospect', zone: 'Z4', source: 'field_pdf_import', owner_user_id: user.id }
     if (mapsUrl) payload.maps_url = mapsUrl
     toInsert.push(payload)
     existingNames.add(lc)

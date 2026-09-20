@@ -75,31 +75,33 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
 
     try {
       const visitId = 'v-persist-100'
+      const ownerUserId = 'u-persist-100'
       const emitted = await inngest.send({
         name: 'eye/visit.saved',
-        data: { visitId },
+        data: { visitId, ownerUserId },
       })
 
       assert.equal(emitted.ids.length, 1)
       assert.equal((capturedEvent as any)?.name, 'eye/visit.saved')
       assert.equal((capturedEvent as any)?.data?.visitId, 'v-persist-100')
+      assert.equal((capturedEvent as any)?.data?.ownerUserId, 'u-persist-100')
     } finally {
       InngestClass.prototype.send = origSend
     }
   })
 
-  // 2. Event payload contains exactly { visitId }
-  it('2. Event payload contains exactly { visitId } and nothing more', () => {
-    const payload = { visitId: 'v-clean-123' }
-    const keys = Object.keys(payload)
-    assert.deepEqual(keys, ['visitId'])
+  // 2. Event payload contains exactly { visitId, ownerUserId }
+  it('2. Event payload contains exactly { visitId, ownerUserId } and nothing more', () => {
+    const payload = { visitId: 'v-clean-123', ownerUserId: 'u-clean-123' }
+    const keys = Object.keys(payload).sort()
+    assert.deepEqual(keys, ['ownerUserId', 'visitId'])
   })
 
   // 3. No notes/business/client PII appears in event payload
   it('3. No notes, business name, or client PII appears in event payload', () => {
     const event = {
       name: 'eye/visit.saved',
-      data: { visitId: 'v-clean-456' },
+      data: { visitId: 'v-clean-456', ownerUserId: 'u-clean-456' },
     }
     const d = event.data as any
     assert.equal(d.notes, undefined)
@@ -239,18 +241,20 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
   it('8. Blank stored note exits early and invokes zero AI providers', async () => {
     const mockSb: any = {
       from: (table: string) => ({
-        select: () => ({
-          eq: () => ({
+        select: () => {
+          const queryObj: any = {
+            eq: () => queryObj,
             maybeSingle: () => Promise.resolve({
-              data: { id: 'v-blank-1', visit_date: '2026-09-20', business_name: 'Bar Pa Shenime', shenime: '   ', client_id: null },
+              data: { id: 'v-blank-1', owner_user_id: 'u-blank-1', visit_date: '2026-09-20', business_name: 'Bar Pa Shenime', shenime: '   ', client_id: null },
               error: null,
             })
-          })
-        })
+          }
+          return queryObj
+        }
       })
     }
 
-    const record = await loadAuthoritativeRecord('v-blank-1', mockSb)
+    const record = await loadAuthoritativeRecord('v-blank-1', 'u-blank-1', mockSb)
     assert.equal(record.hasNotes, false)
     assert.equal(record.input, undefined)
   })
@@ -272,6 +276,7 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
       actionType: null,
       description: null,
       dueDate: null,
+      dueTime: null,
       priority: null,
       rawTrigger: null,
       summary: null,
@@ -303,16 +308,25 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
       actionType: 'call',
       description: 'Telefono klientin neser',
       dueDate: '2026-09-21',
+      dueTime: '10:00',
       priority: 'high',
       rawTrigger: 'telefono neser',
       summary: 'Kerkese',
     }
 
-    const persistRes = await persistActionableReminder(sampleInput, extraction, mockSb)
+    const inputWithOwner = {
+      ...sampleInput,
+      owner_user_id: 'u-sample-owner',
+    }
+
+    const persistRes = await persistActionableReminder(inputWithOwner, extraction, mockSb)
     assert.equal(persistRes.alreadyExists, false)
-    assert.equal(insertedRow.id, deterministicReminderId(sampleInput.visit_id))
+    assert.equal(insertedRow.id, deterministicReminderId(inputWithOwner.visit_id))
+    assert.equal(insertedRow.owner_user_id, 'u-sample-owner')
     assert.equal(insertedRow.description, 'Telefono klientin neser')
     assert.equal(insertedRow.action_type, 'call')
+    assert.equal(insertedRow.due_date, '2026-09-21')
+    assert.equal(insertedRow.due_time, '10:00')
   })
 
   // 11. Duplicate/retried Inngest execution remains idempotent
@@ -370,6 +384,7 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
       actionType: 'deliver',
       description: 'Dërgo katalogun',
       dueDate: '2026-09-22',
+      dueTime: null,
       priority: 'medium',
       rawTrigger: 'katalog',
       summary: 'Katalog',
@@ -548,6 +563,7 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
       actionType: 'call',
       description: 'Telefono pronarin për konfirmim porosie',
       dueDate: '2026-09-22',
+      dueTime: '14:30',
       priority: 'high',
       rawTrigger: 'telefono pronarin',
       summary: 'Konfirmim',
@@ -621,7 +637,9 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
     // 17c. Strict Schema
     assert.equal(REMINDER_STRICT_JSON_SCHEMA.type, 'object')
     assert.equal(REMINDER_STRICT_JSON_SCHEMA.additionalProperties, false)
-    assert.equal(REMINDER_STRICT_JSON_SCHEMA.required.length, 7)
+    assert.equal(REMINDER_STRICT_JSON_SCHEMA.required.length, 8)
+    assert.ok(REMINDER_STRICT_JSON_SCHEMA.required.includes('dueTime'))
+    assert.ok('dueTime' in REMINDER_STRICT_JSON_SCHEMA.properties)
 
     // 17d. Europe/Tirane date at UTC midnight
     const nearMidnight = new Date('2026-09-20T23:30:00.000Z')
@@ -679,5 +697,91 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
         }
       }
     }
+  })
+
+  // 20. dueTime validation and normalization rules
+  describe('20. dueTime validation and normalization rules', () => {
+    const baseRaw = {
+      hasReminder: true,
+      actionType: 'call',
+      description: 'Telefono klientin për porosi',
+      dueDate: '2026-09-21',
+      priority: 'high',
+      rawTrigger: 'telefono neser',
+      summary: 'Porosi',
+    }
+
+    // A. dueDate = "2026-09-21", dueTime = "10:00" -> same values preserved
+    it('20a. Preserves valid dueDate and valid dueTime (10:00)', () => {
+      const result = validateAndNormalizeExtraction({
+        ...baseRaw,
+        dueDate: '2026-09-21',
+        dueTime: '10:00',
+      })
+      assert.equal(result.dueDate, '2026-09-21')
+      assert.equal(result.dueTime, '10:00')
+    })
+
+    // B. dueTime = "23:59" -> valid
+    it('20b. Accepts boundary 24-hour time 23:59 as valid', () => {
+      const result = validateAndNormalizeExtraction({
+        ...baseRaw,
+        dueTime: '23:59',
+      })
+      assert.equal(result.dueTime, '23:59')
+    })
+
+    // C. dueTime = "00:00" -> valid
+    it('20c. Accepts boundary 24-hour time 00:00 as valid', () => {
+      const result = validateAndNormalizeExtraction({
+        ...baseRaw,
+        dueTime: '00:00',
+      })
+      assert.equal(result.dueTime, '00:00')
+    })
+
+    // D. dueTime = "24:00" -> null
+    it('20d. Normalizes invalid 24-hour time 24:00 to null without throwing', () => {
+      const result = validateAndNormalizeExtraction({
+        ...baseRaw,
+        dueTime: '24:00',
+      })
+      assert.equal(result.dueTime, null)
+    })
+
+    // E. dueTime = "10:75" -> null
+    it('20e. Normalizes invalid minute time 10:75 to null without throwing', () => {
+      const result = validateAndNormalizeExtraction({
+        ...baseRaw,
+        dueTime: '10:75',
+      })
+      assert.equal(result.dueTime, null)
+    })
+
+    // F. dueTime = "afternoon" -> null
+    it('20f. Normalizes vague non-time string "afternoon" to null without throwing', () => {
+      const result = validateAndNormalizeExtraction({
+        ...baseRaw,
+        dueTime: 'afternoon',
+      })
+      assert.equal(result.dueTime, null)
+    })
+
+    // G. hasReminder = false -> dueDate = null, dueTime = null
+    it('20g. hasReminder:false returns dueDate:null and dueTime:null', () => {
+      const result = validateAndNormalizeExtraction({
+        hasReminder: false,
+        actionType: null,
+        description: null,
+        dueDate: '2026-09-21',
+        dueTime: '10:00',
+        priority: null,
+        rawTrigger: null,
+        summary: null,
+      })
+      assert.equal(result.hasReminder, false)
+      assert.equal(result.dueDate, null)
+      assert.equal(result.dueTime, null)
+    })
   })
 })

@@ -49,6 +49,7 @@ export async function orchestrateVisitExtraction(
         actionType: null,
         description: null,
         dueDate: null,
+        dueTime: null,
         priority: null,
         rawTrigger: null,
         summary: null,

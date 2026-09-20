@@ -87,6 +87,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState(false)
 
+  // Authenticated user identity for tenant isolation
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id ?? null)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUserId(session?.user?.id ?? null)
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [])
+
   // Filters
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
@@ -199,9 +216,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncing(true)
 
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const ownerUserId = user?.id
+
+      const enrichedPayload = {
+        ...payload,
+        ...(ownerUserId ? { owner_user_id: ownerUserId } : {}),
+      }
+
       const adapter: LifecycleDbAdapter = {
         createClient: async client => {
-          const { data, error } = await supabase.from("clients").insert(client).select().single()
+          const clientPayload = {
+            ...client,
+            ...(ownerUserId ? { owner_user_id: ownerUserId } : {}),
+          }
+          const { data, error } = await supabase.from("clients").insert(clientPayload).select().single()
           return { data: data as Client | null, error }
         },
         deleteClient: async clientId => {
@@ -213,7 +242,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return { error }
         },
         createVisit: async visit => {
-          const { data, error } = await supabase.from("visits").insert(visit).select().single()
+          const visitPayload = {
+            ...visit,
+            ...(ownerUserId ? { owner_user_id: ownerUserId } : {}),
+          }
+          const { data, error } = await supabase.from("visits").insert(visitPayload).select().single()
           return { data: data as Visit | null, error }
         },
         updateVisit: async (id, patch) => {
@@ -227,7 +260,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const result = await orchestrateUpsertVisit({
-        payload,
+        payload: enrichedPayload,
         editingId,
         clients,
         adapter,
@@ -342,48 +375,104 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const zones = [...new Set(clients.map(c => c.zone).filter(Boolean) as string[])].sort()
 
-  // ── Real-time subscriptions ───────────────────────────────────────────────
+  // ── Real-time subscriptions (strictly tenant-filtered by current authenticated user) ──
   useEffect(() => {
+    if (!currentUserId) return
+
     const ch = supabase
-      .channel('clients-rt')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'clients' }, ({ new: row }) => {
-        const item = row as Client
-        setClients(prev => {
-          if (prev.some(c => c.id === item.id)) return prev
-          return [...prev, item].sort((a, b) => a.business_name.localeCompare(b.business_name))
-        })
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'clients' }, ({ new: row }) => {
-        setClients(prev => prev.map(c => c.id === (row as Client).id ? row as Client : c))
-        setActiveClient(prev => prev?.id === (row as Client).id ? row as Client : prev)
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'clients' }, ({ old }) => {
-        setClients(prev => prev.filter(c => c.id !== (old as Client).id))
-      })
+      .channel(`clients-rt-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'clients',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ new: row }) => {
+          const item = row as Client
+          setClients(prev => {
+            if (prev.some(c => c.id === item.id)) return prev
+            return [...prev, item].sort((a, b) => a.business_name.localeCompare(b.business_name))
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'clients',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ new: row }) => {
+          setClients(prev => prev.map(c => c.id === (row as Client).id ? (row as Client) : c))
+          setActiveClient(prev => prev?.id === (row as Client).id ? (row as Client) : prev)
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'clients',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ old }) => {
+          setClients(prev => prev.filter(c => c.id !== (old as Client).id))
+        }
+      )
       .subscribe()
 
     const vch = supabase
-      .channel('visits-rt')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'visits' }, ({ new: row }) => {
-        const item = row as Visit
-        setVisits(prev => {
-          if (prev.some(v => v.id === item.id)) return prev
-          return [item, ...prev]
-        })
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'visits' }, ({ new: row }) => {
-        setVisits(prev => prev.map(v => v.id === (row as Visit).id ? row as Visit : v))
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'visits' }, ({ old }) => {
-        setVisits(prev => prev.filter(v => v.id !== (old as Visit).id))
-      })
+      .channel(`visits-rt-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'visits',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ new: row }) => {
+          const item = row as Visit
+          setVisits(prev => {
+            if (prev.some(v => v.id === item.id)) return prev
+            return [item, ...prev]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'visits',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ new: row }) => {
+          setVisits(prev => prev.map(v => v.id === (row as Visit).id ? (row as Visit) : v))
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'visits',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ old }) => {
+          setVisits(prev => prev.filter(v => v.id !== (old as Visit).id))
+        }
+      )
       .subscribe()
 
     return () => {
       supabase.removeChannel(ch)
       supabase.removeChannel(vch)
     }
-  }, [])
+  }, [currentUserId])
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => { loadClients() }, [loadClients])

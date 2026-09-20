@@ -41,16 +41,35 @@ export function isWorkflowRetryableCategory(category?: ProviderErrorCategory): b
  */
 export async function loadAuthoritativeRecord(
   visitId: string,
-  sb = getAdminClient()
+  ownerUserIdOrSb?: any,
+  maybeSb?: any
 ): Promise<AuthoritativeRecordResult> {
-  const { data: visit, error: visitError } = await sb
+  let ownerUserId: string | undefined
+  let sb: any
+
+  if (typeof ownerUserIdOrSb === 'string') {
+    ownerUserId = ownerUserIdOrSb
+    sb = maybeSb || getAdminClient()
+  } else if (ownerUserIdOrSb && typeof ownerUserIdOrSb === 'object') {
+    sb = ownerUserIdOrSb
+    ownerUserId = undefined
+  } else {
+    sb = maybeSb || getAdminClient()
+  }
+
+  let query = sb
     .from('visits')
-    .select('id, visit_date, business_name, shenime, client_id')
+    .select('id, visit_date, business_name, shenime, client_id, owner_user_id')
     .eq('id', visitId.trim())
-    .maybeSingle()
+
+  if (ownerUserId) {
+    query = query.eq('owner_user_id', ownerUserId.trim())
+  }
+
+  const { data: visit, error: visitError } = await query.maybeSingle()
 
   if (visitError || !visit) {
-    throw new NonRetriableError(`Visit ${visitId} not found or inaccessible`)
+    throw new NonRetriableError(`Visit ${visitId}${ownerUserId ? ` for owner ${ownerUserId}` : ''} not found or inaccessible`)
   }
 
   // Data minimization: if notes are empty or whitespace, exit early
@@ -63,11 +82,17 @@ export async function loadAuthoritativeRecord(
   let zone: string | null = null
 
   if (visit.client_id) {
-    const { data: client } = await sb
+    let clientQuery = sb
       .from('clients')
       .select('status, business_type, zone')
       .eq('id', visit.client_id)
-      .maybeSingle()
+
+    const ownerFilter = ownerUserId || visit.owner_user_id
+    if (ownerFilter) {
+      clientQuery = clientQuery.eq('owner_user_id', ownerFilter.trim())
+    }
+
+    const { data: client } = await clientQuery.maybeSingle()
 
     if (client) {
       clientStatus = client.status
@@ -80,6 +105,7 @@ export async function loadAuthoritativeRecord(
     hasNotes: true,
     input: {
       visit_id: visit.id,
+      owner_user_id: visit.owner_user_id || ownerUserId,
       client_id: visit.client_id,
       business_name: visit.business_name,
       visit_date: visit.visit_date,
@@ -101,10 +127,16 @@ export async function runReminderExtraction(
 ): Promise<ExtractionStepResult> {
   const deterministicId = deterministicReminderId(input.visit_id)
 
-  // Pre-check for existing reminder (covers both deterministic and legacy IDs)
-  const { data: existing } = await sb
+  // Pre-check for existing reminder (covers both deterministic and legacy IDs) scoped to owner
+  let query = sb
     .from('ai_reminders')
     .select('id, business_name, action_type, description')
+
+  if (input.owner_user_id) {
+    query = query.eq('owner_user_id', input.owner_user_id)
+  }
+
+  const { data: existing } = await query
     .or(`id.eq.${deterministicId},visit_id.eq.${input.visit_id}`)
     .maybeSingle()
 
@@ -145,20 +177,27 @@ export async function persistActionableReminder(
 ): Promise<PersistStepResult> {
   const deterministicId = deterministicReminderId(input.visit_id)
 
+  const insertPayload: Record<string, any> = {
+    id: deterministicId,
+    client_id: input.client_id,
+    visit_id: input.visit_id,
+    business_name: input.business_name,
+    action_type: extraction.actionType ?? 'follow_up',
+    description: extraction.description,
+    due_date: extraction.dueDate,
+    due_time: extraction.dueTime,
+    priority: extraction.priority ?? 'medium',
+    raw_trigger: extraction.rawTrigger,
+    is_dismissed: false,
+  }
+
+  if (input.owner_user_id) {
+    insertPayload.owner_user_id = input.owner_user_id
+  }
+
   const { data: inserted, error: insertError } = await sb
     .from('ai_reminders')
-    .insert({
-      id: deterministicId,
-      client_id: input.client_id,
-      visit_id: input.visit_id,
-      business_name: input.business_name,
-      action_type: extraction.actionType ?? 'follow_up',
-      description: extraction.description,
-      due_date: extraction.dueDate,
-      priority: extraction.priority ?? 'medium',
-      raw_trigger: extraction.rawTrigger,
-      is_dismissed: false,
-    })
+    .insert(insertPayload)
     .select('id')
     .single()
 
@@ -183,15 +222,19 @@ export const processVisitReminder = inngest.createFunction(
     triggers: [{ event: 'eye/visit.saved' }],
   },
   async ({ event, step }) => {
-    const { visitId } = event.data
+    const { visitId, ownerUserId } = event.data
 
     if (!visitId || typeof visitId !== 'string' || !visitId.trim()) {
       throw new NonRetriableError('Missing or invalid visitId in event payload')
     }
 
+    if (!ownerUserId || typeof ownerUserId !== 'string' || !ownerUserId.trim()) {
+      throw new NonRetriableError('Missing or invalid ownerUserId in event payload')
+    }
+
     // Step 1: load-authoritative-record
     const record = await step.run('load-authoritative-record', async () => {
-      return loadAuthoritativeRecord(visitId)
+      return loadAuthoritativeRecord(visitId, ownerUserId)
     })
 
     if (!record.hasNotes || !record.input) {
