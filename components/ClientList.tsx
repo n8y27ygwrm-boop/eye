@@ -5,23 +5,40 @@ import { statusInfo } from '@/lib/types'
 import { formatCardFollowupLabel } from '@/lib/followup'
 
 export default function ClientList() {
-  const { clients, filteredClients, openPanel } = useApp()
+  const { clients, filteredClients, openPanel, openImportModal } = useApp()
   const CAP = 500
 
   return (
     <div className="list-wrap" style={{ overflowY: 'auto', flex: 1 }}>
       <div className="summary-bar">
-        <span><strong>{filteredClients.length}</strong> rezultate</span>
-        {filteredClients.filter(c => c.lat == null || c.lng == null).length > 0 && (
-          <span style={{ color: 'var(--warning)' }}>
-            {filteredClients.filter(c => c.lat == null || c.lng == null).length} pa koordinata
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span><strong>{filteredClients.length}</strong> rezultate</span>
+          {filteredClients.filter(c => c.lat == null || c.lng == null).length > 0 && (
+            <span style={{ color: "var(--warning)" }}>
+              {filteredClients.filter(c => c.lat == null || c.lng == null).length} pa koordinata
+            </span>
+          )}
+        </div>
+        <div>
+          <button
+            type="button"
+            className="btn-import-clients"
+            onClick={openImportModal}
+            title="Importo të dhëna klientësh (Google Sheets, CSV, Excel)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: 6 }}>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            IMPORT DATA
+          </button>
+        </div>
       </div>
 
       {filteredClients.length === 0 ? (
         <div className="empty">
-          <div className="empty-icon">🔎</div>
+          <div className="empty-icon">✕</div>
           <div>Asnjë rezultat</div>
         </div>
       ) : (
@@ -50,9 +67,9 @@ export default function ClientList() {
                   <div className="card-meta">
                     {c.zone && <span className="zone-badge">{c.zone}</span>}
                     {c.business_type && <span>{c.business_type}</span>}
-                    {c.phone && <><span className="sep">·</span><span>📞 {c.phone}</span></>}
+                    {c.phone && <><span className="sep">·</span><span>{c.phone}</span></>}
                   </div>
-                  {c.address && <div className="card-addr">📍 {c.address}</div>}
+                  {c.address && <div className="card-addr">{c.address}</div>}
                 </div>
                 {mapsHref && (
                   <a
@@ -62,7 +79,7 @@ export default function ClientList() {
                     rel="noopener"
                     onClick={e => e.stopPropagation()}
                     title="Hap Maps"
-                  >📍</a>
+                  >Maps</a>
                 )}
               </div>
             )

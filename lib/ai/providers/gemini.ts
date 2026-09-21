@@ -1,5 +1,5 @@
 import type { AIProvider, VisitExtractionInput, VisitAIExtraction, CRMQuestionInput, CRMAnswerOutput } from '../types'
-import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt } from '../prompts'
+import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt, formatCRMQuestionSystemPrompt } from '../prompts'
 import { validateAndNormalizeExtraction } from '../schema'
 import { classifyError } from '../errors'
 
@@ -98,7 +98,7 @@ export class GeminiProvider implements AIProvider {
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
     try {
-      const systemPrompt = `You are an intelligent assistant for a field sales representative in Tirana, Albania. You have access to their CRM data. You speak Albanian and English — respond in whichever language the user writes in. You know about their ~300 business clients across 17 zones of Tirana, their sales pipeline, active follow-ups, and visit logs. Be concise, practical, and helpful.\n\n${input.crmContext}`
+      const systemPrompt = formatCRMQuestionSystemPrompt(input.crmContext)
 
       const contents = [
         ...input.conversationHistory.map(m => ({

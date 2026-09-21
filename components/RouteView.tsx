@@ -175,31 +175,49 @@ export default function RouteView() {
               {dayVisits.map(v => {
                 const info = statusInfo(v.statusi ?? undefined)
                 return (
-                  <div key={v.id} className="visit-card">
+                  <div
+                    key={v.id}
+                    className="visit-card"
+                    onClick={() => openVisitModal(v.id, v.visit_date ?? undefined)}
+                    role="button"
+                    tabIndex={0}
+                  >
                     <div className="vc-head">
                       <span className="vc-name">{renderVisitName(v)}</span>
                       <span className={`status-badge ${info.cls}`}>{info.label}</span>
                     </div>
                     {v.shenime && <div className="vc-notes">{v.shenime}</div>}
                     {v.location_url && (
-                      <a className="vc-loc" href={v.location_url} target="_blank" rel="noopener">
-                        📍 Vendndodhja
+                      <a
+                        className="vc-loc"
+                        href={v.location_url}
+                        target="_blank"
+                        rel="noopener"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        Vendndodhja
                       </a>
                     )}
                     <div className="vc-actions">
                       <button
+                        type="button"
                         className="vc-edit"
-                        onClick={() => openVisitModal(v.id, v.visit_date ?? undefined)}
+                        onClick={e => {
+                          e.stopPropagation()
+                          openVisitModal(v.id, v.visit_date ?? undefined)
+                        }}
                       >
-                        ✏️ Ndrysho
+                        Ndrysho
                       </button>
                       <button
+                        type="button"
                         className="vc-delete"
-                        onClick={async () => {
+                        onClick={async e => {
+                          e.stopPropagation()
                           if (confirm('Fshi vizitën?')) await deleteVisit(v.id)
                         }}
                       >
-                        🗑 Fshi
+                        Fshi
                       </button>
                     </div>
                   </div>
@@ -209,6 +227,17 @@ export default function RouteView() {
           )}
         </div>
       )}
+      {/* Mobile Floating / Sticky Add Visit CTA */}
+      <div className="mobile-add-visit-container">
+        <button
+          type="button"
+          className="mobile-sticky-add-btn"
+          onClick={() => openVisitModal(undefined, selectedDay)}
+          aria-label="Shto vizitë të re"
+        >
+          <span>+ Shto Vizitë</span>
+        </button>
+      </div>
     </div>
   )
 }

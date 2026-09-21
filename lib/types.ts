@@ -21,6 +21,23 @@ export type Client = {
   updated_at: string | null
 }
 
+export type AIReminder = {
+  id: string
+  owner_user_id?: string
+  client_id: string | null
+  visit_id: string | null
+  business_name: string
+  action_type: string
+  description: string
+  due_date: string | null
+  due_time: string | null
+  priority: string | null
+  raw_trigger?: string | null
+  is_dismissed: boolean
+  created_at?: string
+  updated_at?: string | null
+}
+
 export type Visit = {
   id: string
   owner_user_id?: string

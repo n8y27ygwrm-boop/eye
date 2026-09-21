@@ -1,5 +1,5 @@
 import type { AIProvider, VisitExtractionInput, VisitAIExtraction, CRMQuestionInput, CRMAnswerOutput } from '../types'
-import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt } from '../prompts'
+import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt, formatCRMQuestionSystemPrompt } from '../prompts'
 import { REMINDER_STRICT_JSON_SCHEMA, validateAndNormalizeExtraction } from '../schema'
 import { classifyError } from '../errors'
 
@@ -84,7 +84,7 @@ export class GroqProvider implements AIProvider {
       const messages = [
         {
           role: 'system',
-          content: `You are an intelligent assistant for a field sales representative in Tirana, Albania. You have access to their CRM data. You speak Albanian and English — respond in whichever language the user writes in. You know about their ~300 business clients across 17 zones of Tirana, their sales pipeline, active follow-ups, and visit logs. Be concise, practical, and helpful.\n\n${input.crmContext}`,
+          content: formatCRMQuestionSystemPrompt(input.crmContext),
         },
         ...input.conversationHistory.map(m => ({
           role: m.role,
@@ -123,4 +123,47 @@ export class GroqProvider implements AIProvider {
       clearTimeout(timer)
     }
   }
+
+  async classifyImportBatch(promptContent: string, systemPrompt: string): Promise<string | null> {
+    if (!this.apiKey) {
+      throw classifyError(new Error("GROQ_API_KEY is not configured"), this.name)
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
+    try {
+      const res = await fetch(GROQ_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: promptContent },
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+        signal: controller.signal,
+      })
+
+      if (!res.ok) {
+        const err: any = new Error(`Groq HTTP ${res.status}: ${res.statusText}`)
+        err.status = res.status
+        throw classifyError(err, this.name)
+      }
+
+      const json = await res.json()
+      return json?.choices?.[0]?.message?.content ?? null
+    } catch (err) {
+      throw classifyError(err, this.name)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
 }

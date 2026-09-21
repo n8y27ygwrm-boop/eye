@@ -155,7 +155,11 @@ export default function SidePanel() {
   const followupInfo = getFollowupInfo(client.next_followup)
 
   return (
-    <div className="side-panel open">
+    <div className="side-panel open" role="dialog" aria-modal="true">
+      {/* Mobile Drag Handle Bar */}
+      <div className="sp-handle-bar" onClick={closePanel} aria-label="Mbyll fletën e detajeve">
+        <span className="sp-handle-pill" />
+      </div>
       <div className="sp-header">
         <div>
           <div className="sp-name">{client.business_name}</div>
@@ -193,7 +197,18 @@ export default function SidePanel() {
 
         {/* Phone */}
         <div className="sp-field">
-          <label>Telefon</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <label style={{ margin: 0 }}>Telefon</label>
+            {field('phone') && (
+              <a
+                href={`tel:${field('phone')}`}
+                className="sp-phone-link"
+                title="Telefono direkt"
+              >
+                📞 Telefono
+              </a>
+            )}
+          </div>
           <input
             type="tel"
             value={field('phone') ?? ''}

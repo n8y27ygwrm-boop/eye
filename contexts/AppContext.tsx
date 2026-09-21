@@ -9,10 +9,23 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import {
   normalize, nowISO, statusInfo, todayISO,
-  type Client, type Visit,
+  type Client, type Visit, type AIReminder,
 } from '@/lib/types'
 import { getFollowupState, type FollowupFilter } from '@/lib/followup'
 import { enqueueVisitReminder } from '@/lib/ai/client-enqueue'
+import {
+  type CurrentLocation,
+  type LocationStatus,
+} from '@/lib/location/types'
+import {
+  DEFAULT_GEOLOCATION_OPTIONS,
+  getStoredLocationPreference,
+  setStoredLocationPreference,
+  isSessionDismissed,
+  setSessionDismissed,
+  mapGeolocationError,
+  toCurrentLocation,
+} from '@/lib/location/utils'
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 type ToastState = { msg: string; kind: string; key: number }
@@ -30,6 +43,12 @@ type AppCtx = {
     editingId?: string
   ) => Promise<UpsertVisitResult>
   deleteVisit: (id: string) => Promise<{ ok: boolean; error?: string }>
+
+  // Next Actions & Reminders
+  reminders: AIReminder[]
+  remindersLoaded: boolean
+  loadReminders: () => Promise<void>
+  todayVisitsCount: number
 
   // Filters
   search: string
@@ -57,6 +76,12 @@ type AppCtx = {
   openVisitModal: (visitId?: string, date?: string) => void
   closeVisitModal: () => void
 
+  // Import modal
+  importModalOpen: boolean
+  openImportModal: () => void
+  closeImportModal: () => void
+  loadClients: () => Promise<void>
+
   // Sync indicator
   syncing: boolean
   syncError: boolean
@@ -64,6 +89,16 @@ type AppCtx = {
   // Toast
   toast: (msg: string, kind?: string) => void
   toastState: ToastState | null
+
+  // Location
+  currentLocation: CurrentLocation | null
+  locationStatus: LocationStatus
+  locationError: string | null
+  enableLocation: () => Promise<void>
+  refreshLocation: () => Promise<CurrentLocation | null>
+  locationPermissionModalOpen: boolean
+  openLocationPermissionModal: () => void
+  closeLocationPermissionModal: (dismissedForSession?: boolean) => void
 }
 
 const Ctx = createContext<AppCtx | null>(null)
@@ -84,6 +119,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [clients, setClients] = useState<Client[]>([])
   const [visits, setVisits] = useState<Visit[]>([])
   const [visitsLoaded, setVisitsLoaded] = useState(false)
+  const [reminders, setReminders] = useState<AIReminder[]>([])
+  const [remindersLoaded, setRemindersLoaded] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState(false)
 
@@ -104,6 +141,185 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // ── Location state ────────────────────────────────────────────────────────
+  const [currentLocation, setCurrentLocation] = useState<CurrentLocation | null>(null)
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle')
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationPermissionModalOpen, setLocationPermissionModalOpen] = useState(false)
+
+  const watchIdRef = useRef<number | null>(null)
+  const currentLocationRef = useRef<CurrentLocation | null>(null)
+
+  const stopWatching = useCallback(() => {
+    if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+    }
+  }, [])
+
+  const startWatching = useCallback(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setLocationStatus('unavailable')
+      setLocationError('Location services are not available on this device.')
+      return
+    }
+
+    if (watchIdRef.current !== null) return
+
+    setLocationStatus('requesting')
+    setLocationError(null)
+
+    try {
+      let isSyncError = false
+      const id = navigator.geolocation.watchPosition(
+        (pos) => {
+          const loc = toCurrentLocation(pos)
+          currentLocationRef.current = loc
+          setCurrentLocation(loc)
+          setLocationStatus('active')
+          setLocationError(null)
+        },
+        (err) => {
+          isSyncError = true
+          const mapped = mapGeolocationError(err)
+          setLocationStatus(mapped.status)
+          setLocationError(mapped.message)
+          if (mapped.status === 'denied') {
+            setStoredLocationPreference(false)
+          }
+          // Terminal permission denial or error: clear watcher and reset watchIdRef to null
+          // so future attempts to Enable Location can register a new watcher without being blocked.
+          if (typeof navigator !== 'undefined' && navigator.geolocation) {
+            if (watchIdRef.current !== null) {
+              navigator.geolocation.clearWatch(watchIdRef.current)
+            } else if (id !== undefined) {
+              navigator.geolocation.clearWatch(id)
+            }
+          }
+          watchIdRef.current = null
+        },
+        DEFAULT_GEOLOCATION_OPTIONS
+      )
+      if (!isSyncError) {
+        watchIdRef.current = id
+      } else {
+        if (typeof navigator !== 'undefined' && navigator.geolocation) {
+          navigator.geolocation.clearWatch(id)
+        }
+        watchIdRef.current = null
+      }
+    } catch (err: any) {
+      watchIdRef.current = null
+      setLocationStatus('error')
+      setLocationError(err?.message || 'Failed to start location service.')
+    }
+  }, [])
+
+  const enableLocation = useCallback(async (): Promise<void> => {
+    setLocationPermissionModalOpen(false)
+    setStoredLocationPreference(true)
+    startWatching()
+  }, [startWatching])
+
+  const refreshLocation = useCallback(async (): Promise<CurrentLocation | null> => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setLocationStatus('unavailable')
+      setLocationError('Location services are not available on this device.')
+      return null
+    }
+
+    setLocationStatus('requesting')
+    setLocationError(null)
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = toCurrentLocation(pos)
+          currentLocationRef.current = loc
+          setCurrentLocation(loc)
+          setLocationStatus('active')
+          setLocationError(null)
+          resolve(loc)
+        },
+        (err) => {
+          const mapped = mapGeolocationError(err)
+          setLocationStatus(mapped.status)
+          setLocationError(mapped.message)
+          resolve(null)
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 15000,
+        }
+      )
+    })
+  }, [])
+
+  const openLocationPermissionModal = useCallback(() => {
+    setLocationPermissionModalOpen(true)
+  }, [])
+
+  const closeLocationPermissionModal = useCallback((dismissedForSession = false) => {
+    if (dismissedForSession) {
+      setSessionDismissed()
+    }
+    setLocationPermissionModalOpen(false)
+  }, [])
+
+  // Auto-resume location watching if previously enabled, or prompt once per session if not set
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const pref = getStoredLocationPreference()
+    if (pref === true) {
+      startWatching()
+    } else if (pref === null) {
+      if (!isSessionDismissed()) {
+        setLocationPermissionModalOpen(true)
+      }
+    }
+  }, [startWatching])
+
+  // Active-session location watching: pause watcher when tab is hidden, resume when visible
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // Tab backgrounded: stop active watcher to preserve battery & respect privacy
+        // Preserves currentLocation as last-known coordinate in application state
+        stopWatching()
+      } else if (document.visibilityState === 'visible') {
+        // Tab foregrounded: resume watcher if location is enabled
+        const pref = getStoredLocationPreference()
+        if (pref === true) {
+          startWatching()
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [startWatching, stopWatching])
+
+  // Stop watching when unmounting
+  useEffect(() => {
+    return () => {
+      stopWatching()
+    }
+  }, [stopWatching])
+
+  // Clear watching on logout
+  useEffect(() => {
+    if (!currentUserId && watchIdRef.current !== null) {
+      stopWatching()
+      setCurrentLocation(null)
+      setLocationStatus('idle')
+    }
+  }, [currentUserId, stopWatching])
+
   // Filters
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
@@ -118,6 +334,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [editingVisit, setEditingVisit] = useState<Visit | null>(null)
   const [visitModalOpen, setVisitModalOpen] = useState(false)
   const [visitModalDate, setVisitModalDate] = useState(todayISO())
+
+  // Import modal state
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const openImportModal = useCallback(() => setImportModalOpen(true), [])
+  const closeImportModal = useCallback(() => setImportModalOpen(false), [])
 
   // Toast
   const [toastState, setToastState] = useState<ToastState | null>(null)
@@ -178,6 +399,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setVisitsLoaded(true)
     setSyncing(false)
   }, [visitsLoaded])
+
+  // ── Load reminders (strictly scoped to authenticated user) ────────────────
+  const loadReminders = useCallback(async () => {
+    setSyncing(true)
+    let query = supabase
+      .from('ai_reminders')
+      .select('*')
+      .eq('is_dismissed', false)
+      .order('due_date', { ascending: true, nullsFirst: false })
+
+    if (currentUserId) {
+      query = query.eq('owner_user_id', currentUserId)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      console.warn('loadReminders failed (table may not exist or network):', error.message)
+      setSyncing(false)
+      setRemindersLoaded(true)
+      return
+    }
+    setReminders((data as AIReminder[]) ?? [])
+    setRemindersLoaded(true)
+    setSyncing(false)
+  }, [currentUserId])
+
 
   // ── Update a client ────────────────────────────────────────────────────────
   const updateClient = useCallback(async (
@@ -468,14 +715,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       .subscribe()
 
+
+    const rch = supabase
+      .channel(`reminders-rt-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ai_reminders',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ new: row }) => {
+          const item = row as AIReminder
+          if (!item.is_dismissed) {
+            setReminders(prev => {
+              if (prev.some(r => r.id === item.id)) return prev
+              return [...prev, item].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+            })
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ai_reminders',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ new: row }) => {
+          const item = row as AIReminder
+          if (item.is_dismissed) {
+            setReminders(prev => prev.filter(r => r.id !== item.id))
+          } else {
+            setReminders(prev => {
+              const exists = prev.some(r => r.id === item.id)
+              if (exists) {
+                return prev.map(r => r.id === item.id ? item : r)
+              }
+              return [...prev, item].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+            })
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'ai_reminders',
+          filter: `owner_user_id=eq.${currentUserId}`,
+        },
+        ({ old }) => {
+          setReminders(prev => prev.filter(r => r.id !== (old as AIReminder).id))
+        }
+      )
+      .subscribe()
+
     return () => {
       supabase.removeChannel(ch)
       supabase.removeChannel(vch)
+      supabase.removeChannel(rch)
     }
   }, [currentUserId])
 
   // ── Initial load ──────────────────────────────────────────────────────────
-  useEffect(() => { loadClients() }, [loadClients])
+  useEffect(() => {
+    loadClients()
+    loadVisits()
+    loadReminders()
+  }, [loadClients, loadVisits, loadReminders])
+
+  const todayVisitsCount = visits.filter(v => v.visit_date === todayISO()).length
 
   const value: AppCtx = {
     clients, visits, visitsLoaded, loadVisits, updateClient, upsertVisit, deleteVisit,
@@ -483,7 +795,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     unlocatedOnly, setUnlocatedOnly, filteredClients, zones,
     activeClient, openPanel, closePanel,
     editingVisit, visitModalOpen, visitModalDate, openVisitModal, closeVisitModal,
+    importModalOpen, openImportModal, closeImportModal, loadClients,
     syncing, syncError, toast, toastState,
+    reminders, remindersLoaded, loadReminders, todayVisitsCount,
+    // Location
+    currentLocation, locationStatus, locationError,
+    enableLocation, refreshLocation,
+    locationPermissionModalOpen, openLocationPermissionModal, closeLocationPermissionModal,
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

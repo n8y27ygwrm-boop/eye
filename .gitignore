@@ -26,3 +26,9 @@ Thumbs.db
 
 # Tooling artifacts
 graphify-out/
+.env*
+
+# Local scratch & tooling
+.agents/
+scratch/
+*.tsbuildinfo

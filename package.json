@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/lifecycle.test.ts test/ai-operational.test.ts test/user-isolation.test.ts",
+    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/lifecycle.test.ts test/ai-operational.test.ts test/user-isolation.test.ts test/mobile-experience.test.ts test/location.test.ts test/import.test.ts",
     "start": "next start",
     "ingest": "node ingest.js",
     "ingest:dry": "node ingest.js --dry-run",
@@ -23,6 +23,7 @@
     "react": "^18",
     "react-dom": "^18",
     "react-leaflet": "^4.2.1",
+    "read-excel-file": "^9.3.10",
     "zod": "^4.6.5"
   },
   "devDependencies": {

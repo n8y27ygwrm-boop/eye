@@ -103,6 +103,10 @@ export default function AIChat() {
       {isOpen && <div className="ai-backdrop" onClick={() => setIsOpen(false)} />}
 
       <div className={`ai-panel${isOpen ? ' open' : ''}`} role="dialog" aria-label="Asistenti AI">
+        {/* Mobile handle bar */}
+        <div className="ai-handle-bar" onClick={() => setIsOpen(false)} aria-label="Mbyll asistentin">
+          <span className="ai-handle-pill" />
+        </div>
         <div className="ai-panel-head">
           <div className="ai-panel-title">
             <span className="ai-panel-star">✦</span>

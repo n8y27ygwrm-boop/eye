@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const { message, conversationHistory } = parseResult.data
 
     const today = getTiranaDate()
-    const contextResult = await buildCompactCRMContext(sb, message, today, user.id)
+    const contextResult = await buildCompactCRMContext(sb, message, today, user.id, conversationHistory)
 
     const result = await orchestrateCRMQuestion({
       message: message.trim(),

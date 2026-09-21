@@ -1,5 +1,5 @@
 import type { AIProvider, VisitExtractionInput, VisitAIExtraction, CRMQuestionInput, CRMAnswerOutput } from '../types'
-import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt } from '../prompts'
+import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt, formatCRMQuestionSystemPrompt } from '../prompts'
 import { REMINDER_STRICT_JSON_SCHEMA, validateAndNormalizeExtraction } from '../schema'
 import { classifyError } from '../errors'
 
@@ -93,7 +93,7 @@ export class OpenRouterProvider implements AIProvider {
       const messages = [
         {
           role: 'system',
-          content: `You are an intelligent assistant for a field sales representative in Tirana, Albania. You have access to their CRM data. You speak Albanian and English — respond in whichever language the user writes in. You know about their ~300 business clients across 17 zones of Tirana, their sales pipeline, active follow-ups, and visit logs. Be concise, practical, and helpful.\n\n${input.crmContext}`,
+          content: formatCRMQuestionSystemPrompt(input.crmContext),
         },
         ...input.conversationHistory.map(m => ({
           role: m.role,
