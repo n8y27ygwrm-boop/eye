@@ -84,4 +84,18 @@ describe('Mobile Experience Architecture Pass for EYE', () => {
     assert.match(login, /min-h-\[100dvh\]/, 'login-form must use min-h-[100dvh]')
     assert.match(login, /overflow-x-hidden/, 'login-form must prevent horizontal overflow')
   })
+  test('9. Desktop and mobile SavvySelect filter display modes cannot visually coexist', () => {
+    const selectPath = path.join(root, 'components/SavvySelect.tsx')
+    const select = fs.readFileSync(selectPath, 'utf8')
+    assert.match(select, /!isMobile &&/, 'SavvySelect must conditionally render desktop dropdown only when !isMobile')
+    assert.match(select, /isMobile &&/, 'SavvySelect must conditionally render mobile sheet only when isMobile')
+    assert.match(select, /savvy-select-opened/, 'SavvySelect must implement mutual exclusion coordinator')
+    assert.match(select, /e.key === 'Escape'/, 'SavvySelect must implement global Escape key handler')
+
+    const cssPath = path.join(root, 'app/globals.css')
+    const css = fs.readFileSync(cssPath, 'utf8')
+    assert.match(css, /@media\s*\(min-width:\s*768px\)[^{]*\{[^}]*\.savvy-mobile-sheet-portal[^}]*display:\s*none\s*!important/, 'Desktop media query must hide mobile sheet with !important')
+    assert.match(css, /@media\s*\(max-width:\s*767px\)[^{]*\{[^}]*\.savvy-select-dropdown[^}]*display:\s*none\s*!important/, 'Mobile media query must hide desktop dropdown with !important')
+    assert.match(css, /\.savvy-select-wrap\.is-open\s*\{[^}]*z-index:\s*650/, 'Open SavvySelect wrap must elevate z-index to 650')
+  })
 })

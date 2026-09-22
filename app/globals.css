@@ -427,6 +427,10 @@ a:hover {
   font-weight: 500;
 }
 
+.savvy-select-wrap.is-open {
+  z-index: 650;
+}
+
 .savvy-opt-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -436,6 +440,155 @@ a:hover {
 .savvy-opt-check {
   color: #FFFFFF;
   flex-shrink: 0;
+}
+
+/* ── SavvySelect Mobile Bottom Sheet (< 768px) ────────────────────────── */
+.savvy-mobile-sheet-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: auto;
+}
+
+.savvy-mobile-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: fadeIn 0.18s ease-out;
+}
+
+.savvy-mobile-sheet-container {
+  position: relative;
+  z-index: 1;
+  background: var(--surface-2, #18191D);
+  border-top: 1px solid var(--border-2, #2E3036);
+  border-radius: 16px 16px 0 0;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
+  animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.savvy-mobile-sheet-drag {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+  cursor: pointer;
+}
+
+.drag-pill {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-2, #3A3D45);
+}
+
+.savvy-mobile-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid var(--border, #24262B);
+}
+
+.savvy-mobile-sheet-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #F0F0F2);
+  letter-spacing: -0.01em;
+}
+
+.savvy-mobile-sheet-close {
+  background: var(--surface, #202227);
+  border: 1px solid var(--border, #2E3036);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2, #A0A2A8);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.savvy-mobile-sheet-close:hover {
+  background: var(--surface-2, #282A30);
+  color: var(--text, #FFF);
+}
+
+.savvy-mobile-sheet-list {
+  overflow-y: auto;
+  padding: 8px;
+  list-style: none;
+  margin: 0;
+  max-height: 55vh;
+  -webkit-overflow-scrolling: touch;
+}
+
+.savvy-mobile-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-2, #C0C2C8);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  margin-bottom: 2px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.savvy-mobile-opt:hover,
+.savvy-mobile-opt:active {
+  background: rgba(142, 34, 48, 0.18);
+  color: var(--text, #FFF);
+}
+
+.savvy-mobile-opt.is-selected {
+  background: var(--accent-burgundy, #8E2230) !important;
+  color: #FFFFFF !important;
+  font-weight: 500;
+}
+
+.savvy-mobile-opt-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savvy-mobile-opt-check {
+  color: #FFFFFF;
+  flex-shrink: 0;
+}
+
+/* ── SavvySelect Responsive Display Isolation ───────────────────────────── */
+@media (min-width: 768px) {
+  .savvy-mobile-sheet-portal {
+    display: none !important;
+  }
+  .savvy-select-dropdown {
+    display: block;
+  }
+}
+
+@media (max-width: 767px) {
+  .savvy-select-dropdown {
+    display: none !important;
+  }
+  .savvy-mobile-sheet-portal {
+    display: flex;
+  }
 }
 
 .filter-selects select {

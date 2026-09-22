@@ -647,8 +647,8 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
     assert.equal(getTiranaDate(nearMidnight), '2026-09-21')
   })
 
-  // 18. Chat input boundary enforcement
-  it('18. Chat input validation bounds message and history', async () => {
+  // 18. Chat input boundary enforcement & history resilience (>20 messages)
+  it('18. Chat input validation bounds message and history, accepts >20 messages and retains latest window', async () => {
     const { z } = await import('zod')
     const ChatMessageSchema = z.object({
       role: z.enum(['user', 'assistant']),
@@ -656,14 +656,115 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
     })
     const ChatRequestSchema = z.object({
       message: z.string().min(1).max(2000),
-      conversationHistory: z.array(ChatMessageSchema).max(20).optional().default([]),
+      conversationHistory: z.array(ChatMessageSchema).max(100).optional().default([]),
     })
 
+    // Valid basic request
     const valid = ChatRequestSchema.safeParse({ message: 'Aferte sot?', conversationHistory: [] })
     assert.equal(valid.success, true)
 
-    const invalid = ChatRequestSchema.safeParse({ message: 'X'.repeat(2005) })
-    assert.equal(invalid.success, false)
+    // Defensively accepts long conversation history (>20 messages, e.g. 25 messages)
+    const longHistory = Array.from({ length: 25 }, (_, i) => ({
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      content: `Message index ${i}`,
+    }))
+    const validLong = ChatRequestSchema.safeParse({ message: 'Pyetje e radhes?', conversationHistory: longHistory })
+    assert.equal(validLong.success, true)
+
+    // Deterministic truncation preserves the latest 15 messages
+    if (validLong.success) {
+      const bounded = validLong.data.conversationHistory.slice(-15)
+      assert.equal(bounded.length, 15)
+      assert.equal(bounded[0].content, 'Message index 10')
+      assert.equal(bounded[14].content, 'Message index 24')
+    }
+
+    // Invalid roles rejected (e.g. 'system', 'admin')
+    const invalidRole = ChatRequestSchema.safeParse({
+      message: 'Test',
+      conversationHistory: [{ role: 'system' as any, content: 'Malicious injection' }],
+    })
+    assert.equal(invalidRole.success, false)
+
+    // Content bounds enforcement
+    const invalidLength = ChatRequestSchema.safeParse({ message: 'X'.repeat(2005) })
+    assert.equal(invalidLength.success, false)
+
+    const invalidEmpty = ChatRequestSchema.safeParse({ message: '' })
+    assert.equal(invalidEmpty.success, false)
+  })
+
+  // 21. Grounded EYE Structured Product Capability & Behavioral Integrity
+  describe('21. Structured EYE Capability Model & Behavioral Integrity', () => {
+    // A. current EYE status taxonomy comes from source-of-truth
+    it('21a. Status taxonomy in AI capability context is derived directly from STATUS_DEFS source-of-truth', async () => {
+      const { buildStructuredProductContext } = await import('../lib/ai/prompts')
+      const { STATUS_DEFS } = await import('../lib/types')
+      const context = buildStructuredProductContext()
+      for (const s of STATUS_DEFS) {
+        assert.ok(context.includes(s.key), `Capability context must include STATUS_DEFS key '${s.key}'`)
+        assert.ok(context.includes(s.label), `Capability context must include STATUS_DEFS label '${s.label}'`)
+      }
+    })
+
+    // B. unknown/future capability is not claimed as current
+    it('21b. Future and non-existent capabilities are strictly separated from current capabilities', async () => {
+      const { EYE_CAPABILITIES, buildStructuredProductContext } = await import('../lib/ai/prompts')
+      const context = buildStructuredProductContext()
+
+      const futureCaps = EYE_CAPABILITIES.filter(c => c.status === 'PLANNED_FUTURE')
+      assert.ok(futureCaps.length >= 4, 'Must define planned/future boundaries')
+
+      const currentSection = context.split('NOT CURRENTLY SUPPORTED')[0]
+      for (const f of futureCaps) {
+        assert.ok(
+          !currentSection.includes(`Capability: ${f.capability}`),
+          `Future capability '${f.capability}' must NOT appear in CURRENT SURFACES section`
+        )
+      }
+
+      assert.ok(!context.includes('drone delivery'), 'Must not claim fictional drone delivery')
+      assert.ok(!context.includes('automated cold calling'), 'Must not claim automated cold calling')
+    })
+
+    // C. product question can be answered from structured capability context
+    it('21c. Structured capability context provides architectural dependencies to answer product questions', async () => {
+      const { EYE_CAPABILITIES } = await import('../lib/ai/prompts')
+      const importCap = EYE_CAPABILITIES.find(c => c.surface === 'Import Inbox')
+      assert.ok(importCap, 'Import Inbox must exist in capability registry')
+      assert.match(importCap.route || '', /Clients|list/i, 'Import Inbox route must anchor to Clients surface')
+
+      const clientsCap = EYE_CAPABILITIES.find(c => c.surface === 'Clients')
+      assert.ok(clientsCap, 'Clients surface must exist')
+      assert.match(clientsCap.action, /Import Data/i, 'Clients surface action must provide Import Data entry point')
+
+      const mapCap = EYE_CAPABILITIES.find(c => c.surface === 'Map')
+      assert.match(mapCap?.constraints || '', /clients with verified lat\/lng/i, 'Map depends on client records')
+
+      const routeCap = EYE_CAPABILITIES.find(c => c.surface === 'Route / Visits')
+      assert.match(routeCap?.constraints || '', /manually logs each visit/i, 'Route logs visits against clients')
+    })
+
+    // D. no static hardcoded zone count is present
+    it('21d. No static hardcoded zone count or invented zone lists exist in prompts', async () => {
+      const { buildStructuredProductContext } = await import('../lib/ai/prompts')
+      const context = buildStructuredProductContext()
+
+      assert.ok(!context.includes('17 Tirana zones'), 'Must not claim 17 Tirana zones')
+      assert.ok(!context.includes('17 zonat'), 'Must not claim 17 zonat')
+      assert.match(context, /Dynamically derived from the user's active client records/i, 'Zones must be specified as dynamically derived')
+    })
+
+    // E. live CRM facts still override model assumptions
+    it('21e. Live CRM facts are strictly authoritative over model assumptions in system prompt', async () => {
+      const { formatCRMQuestionSystemPrompt } = await import('../lib/ai/prompts')
+      const crmContext = 'Total Registered Visits in CRM: 35. Total visits for today (2026-09-22): 0.'
+      const prompt = formatCRMQuestionSystemPrompt(crmContext)
+
+      assert.ok(prompt.includes(crmContext), 'Live CRM context must be included verbatim')
+      assert.match(prompt, /The supplied CRM context below is strictly authoritative for database facts/i)
+      assert.match(prompt, /NEVER say "you have no registered visits" when the context only represents today's visits/i)
+    })
   })
 
   // 19. No AI/Inngest/Supabase privileged secret appears in client code
@@ -782,6 +883,214 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
       assert.equal(result.hasReminder, false)
       assert.equal(result.dueDate, null)
       assert.equal(result.dueTime, null)
+    })
+  })
+
+  describe("22. Product Capability Registry & AI Model Split", () => {
+    it("22a. Product capability registry is imported by AI and matches product capability module", async () => {
+      const { EYE_CAPABILITIES: aiCaps, buildStructuredProductContext: aiBuild } = await import("../lib/ai/prompts")
+      const { EYE_CAPABILITIES: prodCaps, buildStructuredProductContext: prodBuild, EYE_ROUTES } = await import("../lib/product/capabilities")
+
+      assert.strictEqual(aiCaps, prodCaps)
+      assert.strictEqual(aiBuild, prodBuild)
+      assert.equal(typeof EYE_ROUTES.CLIENTS, "string")
+      assert.equal(EYE_ROUTES.CLIENTS, "/list")
+    })
+
+    it("22b. buildStructuredProductContext dynamically derives status taxonomy from STATUS_DEFS", async () => {
+      const { buildStructuredProductContext } = await import("../lib/product/capabilities")
+      const { STATUS_DEFS } = await import("../lib/types")
+      const context = buildStructuredProductContext()
+
+      for (const def of STATUS_DEFS) {
+        assert.ok(
+          context.includes(def.key) && context.includes(def.label),
+          `Expected context to contain status key "${def.key}" and label "${def.label}"`
+        )
+      }
+    })
+
+    it("22c. GroqProvider chat model and background model are independently configurable via options and env", async () => {
+      const { GroqProvider, DEFAULT_BACKGROUND_MODEL, DEFAULT_CHAT_MODEL } = await import("../lib/ai/providers/groq")
+
+      const prevModel = process.env.GROQ_MODEL
+      const prevChatModel = process.env.GROQ_CHAT_MODEL
+      delete process.env.GROQ_MODEL
+      delete process.env.GROQ_CHAT_MODEL
+
+      try {
+        const defaultProvider = new GroqProvider({ apiKey: "mock" })
+        assert.equal(defaultProvider.getBackgroundModel(), DEFAULT_BACKGROUND_MODEL)
+        assert.equal(defaultProvider.getChatModel(), DEFAULT_CHAT_MODEL)
+
+        process.env.GROQ_MODEL = "custom-bg-env"
+        process.env.GROQ_CHAT_MODEL = "custom-chat-env"
+        const envProvider = new GroqProvider({ apiKey: "mock" })
+        assert.equal(envProvider.getBackgroundModel(), "custom-bg-env")
+        assert.equal(envProvider.getChatModel(), "custom-chat-env")
+
+        const customProvider = new GroqProvider({
+          apiKey: "mock",
+          model: "options-bg",
+          chatModel: "options-chat",
+        })
+        assert.equal(customProvider.getBackgroundModel(), "options-bg")
+        assert.equal(customProvider.getChatModel(), "options-chat")
+      } finally {
+        if (prevModel !== undefined) process.env.GROQ_MODEL = prevModel
+        else delete process.env.GROQ_MODEL
+        if (prevChatModel !== undefined) process.env.GROQ_CHAT_MODEL = prevChatModel
+        else delete process.env.GROQ_CHAT_MODEL
+      }
+    })
+
+    it("22d. GroqProvider routes answerCRMQuestion to chat model and extraction/import to background model", async () => {
+      const { GroqProvider } = await import("../lib/ai/providers/groq")
+
+      const capturedModels: { call: string; model: string }[] = []
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async (url: any, init: any) => {
+        const body = JSON.parse(init.body)
+        if (url.includes("completions")) {
+          if (body.response_format?.type === "json_schema") {
+            capturedModels.push({ call: "extractVisitReminder", model: body.model })
+            return new Response(JSON.stringify({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    hasReminder: false,
+                    actionType: null,
+                    description: null,
+                    dueDate: null,
+                    dueTime: null,
+                    priority: null,
+                    rawTrigger: null,
+                    summary: null,
+                  })
+                }
+              }]
+            }), { status: 200 })
+          } else if (body.response_format?.type === "json_object") {
+            capturedModels.push({ call: "classifyImportBatch", model: body.model })
+            return new Response(JSON.stringify({ choices: [{ message: { content: "{\"items\":[]}" } }] }), { status: 200 })
+          } else {
+            capturedModels.push({ call: "answerCRMQuestion", model: body.model })
+            return new Response(JSON.stringify({ choices: [{ message: { content: "CRM Answer" } }] }), { status: 200 })
+          }
+        }
+        return originalFetch(url, init)
+      }) as any
+
+      try {
+        const provider = new GroqProvider({
+          apiKey: "mock-key",
+          model: "openai/gpt-oss-20b",
+          chatModel: "openai/gpt-oss-120b",
+        })
+
+        await provider.answerCRMQuestion({
+          message: "Sa kliente kam?",
+          conversationHistory: [],
+          crmContext: "CRM Context",
+        })
+
+        await provider.extractVisitReminder({
+          visit_id: "test-visit-1",
+          client_id: "test-client-1",
+          visit_date: "2026-09-22",
+          business_name: "Test Client",
+          shenime: "Note",
+        })
+
+        await provider.classifyImportBatch("batch content", "system prompt")
+
+        assert.equal(capturedModels.length, 3)
+        assert.equal(capturedModels[0].call, "answerCRMQuestion")
+        assert.equal(capturedModels[0].model, "openai/gpt-oss-120b")
+
+        assert.equal(capturedModels[1].call, "extractVisitReminder")
+        assert.equal(capturedModels[1].model, "openai/gpt-oss-20b")
+
+        assert.equal(capturedModels[2].call, "classifyImportBatch")
+        assert.equal(capturedModels[2].model, "openai/gpt-oss-20b")
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it("22e. buildCompactCRMContext correctly grounds with non-zero owner-scoped clients and visits", async () => {
+      const { buildCompactCRMContext } = await import("../lib/ai/chat-context")
+
+      const ownerId = "user-owner-123"
+      const mockClients = [
+        { id: "c1", business_name: "Minimarket Fredi", status: "Customer/Purchase", zone: "Blloku", next_action: "Merr porosi", next_followup: "2026-09-22", owner_user_id: ownerId },
+        { id: "c2", business_name: "Restorant Kashta", status: "Customer/Purchase", zone: "Kombinat", next_action: null, next_followup: null, owner_user_id: ownerId },
+      ]
+      const mockVisits = [
+        { id: "v1", client_id: "c1", business_name: "Minimarket Fredi", visit_date: "2026-09-22", statusi: "Customer/Purchase", shenime: "U krye porosia", owner_user_id: ownerId },
+        { id: "v2", client_id: "c2", business_name: "Restorant Kashta", visit_date: "2026-09-21", statusi: "prospect", shenime: "I interesuar per furnizim", owner_user_id: ownerId },
+      ]
+
+      const mockSb = {
+        from: (table: string) => {
+          if (table === "clients") {
+            return {
+              select: () => ({
+                eq: (col: string, val: string) => {
+                  assert.equal(col, "owner_user_id")
+                  assert.equal(val, ownerId)
+                  return Promise.resolve({ data: mockClients, error: null })
+                }
+              })
+            }
+          }
+          if (table === "ai_reminders") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  limit: () => ({
+                    eq: () => Promise.resolve({ data: [], error: null })
+                  })
+                })
+              })
+            }
+          }
+          if (table === "visits") {
+            return {
+              select: (_cols: any, opts?: any) => {
+                if (opts?.head) {
+                  return {
+                    eq: (col: string, val: string) => {
+                      assert.equal(col, "owner_user_id")
+                      assert.equal(val, ownerId)
+                      return Promise.resolve({ count: mockVisits.length, data: null, error: null })
+                    }
+                  }
+                }
+                return {
+                  eq: (col: string, val: string) => ({
+                    eq: (dCol: string, dVal: string) => ({
+                      order: () => Promise.resolve({
+                        data: mockVisits.filter(v => v.visit_date === dVal),
+                        error: null,
+                      })
+                    }),
+                    order: () => ({
+                      limit: () => Promise.resolve({ data: mockVisits, error: null })
+                    })
+                  })
+                }
+              }
+            }
+          }
+          throw new Error("Unexpected table " + table)
+        }
+      } as any
+
+      const context = await buildCompactCRMContext(mockSb, "Sa kliente kam?", "2026-09-22", ownerId)
+      assert.ok(context.text.includes("Total Clients: 2"))
+      assert.ok(context.text.includes("Total Registered Visits in CRM: 2"))
+      assert.ok(context.text.includes("Minimarket Fredi"))
     })
   })
 })

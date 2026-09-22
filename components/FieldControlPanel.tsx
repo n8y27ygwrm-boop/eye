@@ -1,5 +1,7 @@
 'use client'
 
+import { EYE_ROUTES } from '@/lib/product/capabilities'
+
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -189,7 +191,7 @@ export default function FieldControlPanel() {
   }
 
   const activeWorkspaceName =
-    pathname === '/route' ? 'Visits' : pathname === '/list' ? 'Clients' : 'Map'
+    pathname === EYE_ROUTES.ROUTE ? 'Visits' : pathname === EYE_ROUTES.CLIENTS ? 'Clients' : 'Map'
 
   // ── Touch swipe gesture handler for mobile bottom sheet ──────────────────────
   const handleTouchStart = (e: React.TouchEvent) => {

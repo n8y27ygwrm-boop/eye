@@ -1,4 +1,6 @@
-import type { VisitExtractionInput } from './types'
+import type { VisitExtractionInput } from "./types"
+import { STATUS_DEFS } from "../types"
+import { FRESHNESS_THRESHOLD_MS, POOR_ACCURACY_THRESHOLD_M } from "../location/utils"
 
 export const EXTRACTION_SYSTEM_PROMPT = `You are an intelligent CRM assistant for a field sales representative in Tirana, Albania. You read field visit notes written in Albanian and extract actionable commitments or follow-up items.
 
@@ -34,14 +36,40 @@ export function formatVisitExtractionUserPrompt(input: VisitExtractionInput): st
   if (input.zone) lines.push(`Zone: ${input.zone}`)
   lines.push(`Notes: ${input.shenime}`)
 
-  return lines.join('\n')
+  return lines.join("\n")
+}
+
+export const EYE_SYSTEM_IDENTITY = `You are EYE AI, the intelligent product-native copilot embedded in EYE by SAVVY SYSTEMS.
+You are a highly capable general intelligence that is, first and foremost, an expert on the EYE platform itself and a senior operational advisor for field sales in Tirana, Albania.
+
+You speak fluent Albanian and English. Always reply in the language the user speaks to you (Albanian or English).
+Your style is concise, practical, field-grounded, and analytically sound. You reason dynamically from the structured product capability model and live CRM context below.
+You do not use canned FAQ answers or rigid keyword routing.`
+
+import {
+  type CapabilityDef,
+  EYE_CAPABILITIES,
+  buildStructuredProductContext,
+  EYE_ROUTES,
+  EYE_SURFACES,
+} from "../product/capabilities"
+
+export {
+  type CapabilityDef,
+  EYE_CAPABILITIES,
+  buildStructuredProductContext,
+  EYE_ROUTES,
+  EYE_SURFACES,
 }
 
 export function formatCRMQuestionSystemPrompt(crmContext: string): string {
-  return `You are an intelligent assistant for a field sales representative in Tirana, Albania. You have access to their CRM data. You speak Albanian and English — respond in whichever language the user writes in. You know about their business clients across zones of Tirana, their sales pipeline, active follow-ups, and visit logs. Be concise, practical, and helpful.
+  return `${EYE_SYSTEM_IDENTITY}
 
+${buildStructuredProductContext()}
+
+=== LIVE USER CRM DATABASE CONTEXT ===
 CRITICAL FACTUAL GROUNDING RULES:
-1. The supplied CRM context is strictly authoritative for database facts.
+1. The supplied CRM context below is strictly authoritative for database facts.
 2. Absence from a narrow context (such as today's visits or a single specific date) MUST NOT be interpreted as absence from the entire CRM. Always check the "Total Registered Visits in CRM" figure in the context.
 3. NEVER say "you have no registered visits" when the context only represents today's visits or a specific date. Clearly distinguish between:
    - "nuk keni vizita të regjistruara për këtë datë" (no visits recorded for this specific date)

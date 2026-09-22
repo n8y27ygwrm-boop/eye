@@ -15,7 +15,7 @@ const ChatMessageSchema = z.object({
 
 const ChatRequestSchema = z.object({
   message: z.string().min(1).max(2000),
-  conversationHistory: z.array(ChatMessageSchema).max(20).optional().default([]),
+  conversationHistory: z.array(ChatMessageSchema).max(100).optional().default([]),
 })
 
 export async function POST(req: NextRequest) {
@@ -34,12 +34,15 @@ export async function POST(req: NextRequest) {
 
     const { message, conversationHistory } = parseResult.data
 
+    // Defensively take only the latest bounded history window (last 15 messages)
+    const boundedHistory = conversationHistory.slice(-15)
+
     const today = getTiranaDate()
-    const contextResult = await buildCompactCRMContext(sb, message, today, user.id, conversationHistory)
+    const contextResult = await buildCompactCRMContext(sb, message, today, user.id, boundedHistory)
 
     const result = await orchestrateCRMQuestion({
       message: message.trim(),
-      conversationHistory: conversationHistory.slice(-10), // Limit history for compact payload
+      conversationHistory: boundedHistory,
       crmContext: contextResult.text,
     })
 

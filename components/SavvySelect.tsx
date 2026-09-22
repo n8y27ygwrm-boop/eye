@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useId } from 'react'
 
 export type SelectOption = {
   value: string
@@ -24,12 +24,36 @@ export default function SavvySelect({
 }: SavvySelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [isMobile, setIsMobile] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const listboxRef = useRef<HTMLUListElement>(null)
+  const selectId = useId()
 
   const selectedOption = options.find(o => o.value === value)
   const displayLabel = selectedOption ? selectedOption.label : (placeholder || options[0]?.label || '')
   const filterTitle = ariaLabel || placeholder || 'Filtro'
+
+  // Responsive viewport sync (<= 767px mobile vs >= 768px desktop)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mql = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mql.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
+
+  // Mutual exclusion: opening one SavvySelect closes all other open SavvySelect instances
+  useEffect(() => {
+    function handleOtherOpen(e: Event) {
+      const customEvent = e as CustomEvent<string>
+      if (customEvent.detail !== selectId) {
+        setIsOpen(false)
+      }
+    }
+    window.addEventListener('savvy-select-opened', handleOtherOpen)
+    return () => window.removeEventListener('savvy-select-opened', handleOtherOpen)
+  }, [selectId])
 
   // Close on outside click (desktop)
   useEffect(() => {
@@ -43,23 +67,34 @@ export default function SavvySelect({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
 
-  // Close on Escape, navigate with Arrow keys
+  // Global Escape key listener to close dropdown wherever focus is
+  useEffect(() => {
+    if (!isOpen) return
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [isOpen])
+
+  // Keyboard navigation when focused inside the select
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (!isOpen) {
         if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           setIsOpen(true)
+          window.dispatchEvent(new CustomEvent('savvy-select-opened', { detail: selectId }))
           const currIdx = options.findIndex(o => o.value === value)
           setHighlightedIndex(currIdx >= 0 ? currIdx : 0)
         }
         return
       }
 
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setIsOpen(false)
-      } else if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown') {
         e.preventDefault()
         setHighlightedIndex(prev => (prev + 1 < options.length ? prev + 1 : 0))
       } else if (e.key === 'ArrowUp') {
@@ -75,7 +110,7 @@ export default function SavvySelect({
         setIsOpen(false)
       }
     },
-    [isOpen, options, value, highlightedIndex, onChange]
+    [isOpen, options, value, highlightedIndex, onChange, selectId]
   )
 
   // Scroll highlighted item into view
@@ -89,6 +124,18 @@ export default function SavvySelect({
       }
     }
   }, [highlightedIndex, isOpen])
+
+  function toggleOpen() {
+    setIsOpen(prev => {
+      const nextState = !prev
+      if (nextState) {
+        window.dispatchEvent(new CustomEvent('savvy-select-opened', { detail: selectId }))
+        const currIdx = options.findIndex(o => o.value === value)
+        setHighlightedIndex(currIdx >= 0 ? currIdx : 0)
+      }
+      return nextState
+    })
+  }
 
   function selectOption(optValue: string) {
     onChange(optValue)
@@ -104,11 +151,7 @@ export default function SavvySelect({
       <button
         type="button"
         className={'savvy-select-trigger' + (value && value !== 'all' ? ' has-value' : '')}
-        onClick={() => {
-          setIsOpen(prev => !prev)
-          const currIdx = options.findIndex(o => o.value === value)
-          setHighlightedIndex(currIdx >= 0 ? currIdx : 0)
-        }}
+        onClick={toggleOpen}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label={filterTitle}
@@ -133,8 +176,8 @@ export default function SavvySelect({
         </svg>
       </button>
 
-      {/* ── Desktop Floating Dropdown List (>= 768px) ─────────────────────────── */}
-      {isOpen && (
+      {/* ── Desktop Floating Dropdown List (>= 768px ONLY) ────────────────────── */}
+      {isOpen && !isMobile && (
         <ul
           ref={listboxRef}
           role="listbox"
@@ -181,8 +224,8 @@ export default function SavvySelect({
         </ul>
       )}
 
-      {/* ── Mobile Action Bottom Sheet (< 768px) ──────────────────────────────── */}
-      {isOpen && (
+      {/* ── Mobile Action Bottom Sheet (< 768px ONLY) ─────────────────────────── */}
+      {isOpen && isMobile && (
         <div className="savvy-mobile-sheet-portal" aria-modal="true" role="dialog">
           <div
             className="savvy-mobile-sheet-backdrop"

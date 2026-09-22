@@ -41,7 +41,8 @@ export default function AIChat() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, conversationHistory: messages }),
+        // Send bounded latest history window (last 15 messages) to prevent oversized payloads
+        body: JSON.stringify({ message: msg, conversationHistory: messages.slice(-15) }),
       })
       let data: { reply?: string; error?: string }
       try {
