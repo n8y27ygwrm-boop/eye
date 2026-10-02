@@ -114,7 +114,10 @@ export default function MapView() {
         <div class="popup-title">${group.length} klientë në këtë pikë</div>
         <div class="popup-meta">Zgjidh klientin për të hapur detajet.</div>
         <div class="popup-chooser">${group.map(item => `<button type="button" class="popup-choice" data-id="${item.id}"><span>${esc(item.business_name)}</span>${item.zone ? `<small>${esc(item.zone)}</small>` : ''}</button>`).join('')}</div>`
-      const m = L.marker([c.lat!, c.lng!], { icon: group.length === 1 ? icon : makeSharedIcon(group.length) })
+      const m = L.marker([c.lat!, c.lng!], {
+        icon: group.length === 1 ? icon : makeSharedIcon(group.length),
+        zIndexOffset: group.length > 1 ? 500 + group.length : 0,
+      })
       m.bindPopup(popup, { maxWidth: 300 })
       m.on('popupopen', () => {
         m.getPopup()?.getElement()?.querySelectorAll<HTMLElement>('[data-id]').forEach(btn => {
