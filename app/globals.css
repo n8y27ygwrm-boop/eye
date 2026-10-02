@@ -724,6 +724,9 @@ a:hover {
   background: var(--surface-2);
   border-color: var(--border-focus);
 }
+.map-wrap:has(.leaflet-popup) .unlocated-badge {
+  visibility: hidden;
+}
 .unlocated-badge .num {
   color: var(--crimson-text);
   font-weight: 600;
