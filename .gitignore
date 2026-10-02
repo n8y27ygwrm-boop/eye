@@ -1,0 +1,13 @@
+.env*
+!.env.example
+.next/
+.vercel/
+node_modules/
+out/
+*.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/
+*.swp
+graphify-out/
+scratch/
