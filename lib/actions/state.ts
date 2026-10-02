@@ -17,6 +17,7 @@ export class ActionStateStore {
   private cacheGeneration = 0
   private histories = new Map<string, ActionEvent[]>()
   private clientRecords = new Map<string, OperationalAction[]>()
+  private pendingCompletions = new Set<string>()
   private readonly service: Pick<ActionService, 'listOpen' | 'forClient' | 'history' | 'mutate' | 'capabilities'>
   constructor(service: Pick<ActionService, 'listOpen' | 'forClient' | 'history' | 'mutate' | 'capabilities'>) { this.service = service }
   get capabilities(): ActionCapabilities | undefined { return this.service.capabilities }
@@ -42,6 +43,16 @@ export class ActionStateStore {
   }
   refresh = () => this.load(false)
   async mutate(command: ActionCommand) {
+    const completionId = command.operation === 'surface' && command.intent === 'complete' ? command.actionId : undefined
+    if (completionId && this.pendingCompletions.has(completionId)) return { unchanged: true } as const
+    if (completionId) this.pendingCompletions.add(completionId)
+    try {
+      return await this.performMutation(command)
+    } finally {
+      if (completionId) this.pendingCompletions.delete(completionId)
+    }
+  }
+  private async performMutation(command: ActionCommand) {
     const epoch = this.accountEpoch
     let target = command.operation === 'surface' && this.value.status === 'loaded'
       ? this.value.actions.find(action => action.id === command.actionId) : undefined

@@ -18,6 +18,7 @@ import {
   type Client, type Visit,
 } from '@/lib/types'
 import { type FollowupFilter } from '@/lib/followup'
+import { isUnlocated } from '@/lib/location/group'
 import { enqueueVisitReminder } from '@/lib/ai/client-enqueue'
 import {
   type CurrentLocation,
@@ -657,7 +658,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (followupFilter === 'today' && fuState !== 'DUE_TODAY') return false
       if (followupFilter === 'upcoming' && fuState !== 'UPCOMING') return false
     }
-    if (unlocatedOnly && (c.lat != null || !c.maps_url)) return false
+    if (unlocatedOnly && !isUnlocated(c)) return false
     if (search) {
       if (!normalize(c.business_name).includes(normalize(search))) return false
     }

@@ -5,7 +5,7 @@ import { useApp } from '@/contexts/AppContext'
 import { statusInfo, STATUS_DEFS, fmtDate, todayISO, type Client } from '@/lib/types'
 import { attentionBadge, deriveClientAttention } from '@/lib/actions/attention'
 import type { OperationalAction, SurfaceCommand } from '@/lib/actions/types'
-import { formatFollowupDate, addDaysISO } from '@/lib/followup'
+import { formatFollowupDate, formatFollowupDateTime, formatHistoryDate, addDaysISO } from '@/lib/followup'
 
 type FuMode = 'view' | 'edit' | 'reschedule'
 
@@ -356,7 +356,7 @@ export default function SidePanel() {
         )}
 
 
-        <div className="sp-section" style={{ marginBottom: 12 }}><label>Vizita e fundit</label>{visitsError ? <div role="alert">{visitsError}<button type="button" onClick={loadVisits}>Provo përsëri</button></div> : !visitsLoaded ? <div>Duke ngarkuar vizitat…</div> : clientVisits[0] ? <div className="sp-static">{fmtDate(clientVisits[0].visit_date)} · {clientVisits[0].shenime || statusInfo(clientVisits[0].statusi).label}</div> : <div className="sp-static">Nuk ka vizita të regjistruara.</div>}</div>
+        <div className="sp-section" style={{ marginBottom: 12 }}><label>Vizita e fundit</label>{visitsError ? <div role="alert">{visitsError}<button type="button" onClick={loadVisits}>Provo përsëri</button></div> : !visitsLoaded ? <div>Duke ngarkuar vizitat…</div> : clientVisits[0] ? <div className="sp-static">{formatHistoryDate(clientVisits[0].visit_date)} · {clientVisits[0].shenime || statusInfo(clientVisits[0].statusi).label}</div> : <div className="sp-static">Nuk ka vizita të regjistruara.</div>}</div>
         {/* OPERATIONAL BLOCK: NEXT ACTION */}
         <div className="sp-followup-block">
           <div className="sp-fu-header">
@@ -504,7 +504,7 @@ export default function SidePanel() {
                   <div className="sp-fu-row">
                     <span className="sp-fu-label">Afati:</span>
                     <span className="sp-fu-val sp-fu-due">
-                      {selectedAction?.due_date ? formatFollowupDate(selectedAction.due_date, { withYear: true }) : 'Pa afat'}
+                      {formatFollowupDateTime(selectedAction?.due_date, selectedAction?.due_time, { withYear: true })}
                     </span>
                   </div>
 
@@ -554,7 +554,7 @@ export default function SidePanel() {
                         onClick={() => { fuTargetRef.current = selectedAction; setFuConfirmDone(true) }}
                         disabled={!selectedAction?.allowed_operations?.includes('complete')}
                       >
-                        ✓ Mark Done
+                        ✓ Shëno si të kryer
                       </button>
                     </div>
                   )}
@@ -577,7 +577,7 @@ export default function SidePanel() {
 
         {attention && attention.open.length > 1 && <div className="sp-followup-block"><div className="sp-fu-title">VEPRIME TË TJERA</div>{attention.open.filter(a => a.id !== selectedAction?.id).map(a => <div className="sp-fu-row" key={a.id}><span>{a.description} · {a.due_date ? formatFollowupDate(a.due_date) : 'Pa afat'}</span>{a.allowed_operations?.includes('edit') && <button type="button" className="sp-fu-tool-btn" disabled={fuSaving} onClick={() => { setSelectedActionId(a.id); startEditFollowup(a) }}>Ndrysho</button>}<button type="button" className="sp-fu-tool-btn" disabled={fuSaving || !a.allowed_operations?.includes('complete')} onClick={() => changeAction({ operation: 'surface', intent: 'complete', requestId: crypto.randomUUID(), channel: 'client_detail', clientId: client.id, actionId: a.id, expectedVersion: a.version, expectedRevision: a.revision })}>✓ Kryer</button></div>)}</div>}
         <div className="sp-section" style={{ marginTop: 12 }}><label>Historia e veprimeve</label>
-          {historyError ? <div role="alert">{historyError}</div> : actionState.status !== 'loaded' ? <div>Duke ngarkuar…</div> : !operationalActions.capabilities?.history ? <div className="sp-static">Historia e përfundimeve nuk është regjistruar në burimin aktual.{historyRecords?.filter(a => a.state === 'legacy_closed').map(a => <div key={a.id}>{a.description} — legacy_closed (pa aktor ose datë përfundimi)</div>)}</div> : <div>{historyRecords?.map(a => <div key={a.id}><button type="button" className="sp-fu-tool-btn" onClick={() => operationalActions.history(a.id).catch(cause => setHistoryError(cause.message))}>{a.description} · {a.state}</button>{operationalActions.historySnapshot(a.id)?.map(event => <div key={event.id}>{event.event_type} · {fmtDate(event.recorded_at)}</div>)}</div>)}</div>}
+          {historyError ? <div role="alert">{historyError}</div> : actionState.status !== 'loaded' ? <div>Duke ngarkuar…</div> : !operationalActions.capabilities?.history ? <div className="sp-static">Historia e përfundimeve nuk është regjistruar në burimin aktual.{historyRecords?.filter(a => a.state === 'legacy_closed').map(a => <div key={a.id}>{a.description} — Mbyllur më parë (pa aktor ose datë përfundimi)</div>)}</div> : <div>{historyRecords?.map(a => <div key={a.id}><button type="button" className="sp-fu-tool-btn" onClick={() => operationalActions.history(a.id).catch(cause => setHistoryError(cause.message))}>{a.description} · {({ open: 'Hapur', completed: 'Përfunduar', cancelled: 'Anuluar', replaced: 'Zëvendësuar', legacy_closed: 'Mbyllur më parë' } as const)[a.state]}</button>{operationalActions.historySnapshot(a.id)?.map(event => <div key={event.id}>{({ completed: 'Përfunduar', created: 'Krijuar', imported: 'Importuar', updated: 'Përditësuar' } as Record<string, string>)[event.event_type] ?? event.event_type} · {formatHistoryDate(event.recorded_at)}</div>)}</div>)}</div>}
         </div>
 
         {/* Add visit shortcut */}
@@ -616,7 +616,7 @@ export default function SidePanel() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ fontWeight: 500, color: 'var(--text-1)' }}>{fmtDate(v.visit_date)}</span>
+                      <span style={{ fontWeight: 500, color: 'var(--text-1)' }}>{formatHistoryDate(v.visit_date)}</span>
                       <span className={`status-badge ${sInfo.cls}`} style={{ fontSize: '10px', padding: '2px 6px' }}>
                         {sInfo.label}
                       </span>
