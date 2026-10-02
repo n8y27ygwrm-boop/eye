@@ -21,6 +21,50 @@ const { groupClientsByCoordinates, isUnlocated } = require('../lib/location/grou
 const { ActionStateStore } = require('../lib/actions/state.ts')
 const { createLegacyActionService, mapLegacy } = require('../lib/actions/legacy.ts')
 
+test('active legacy reminder fixtures render timed and untimed cards', () => {
+  const React = require('react')
+  const { renderToStaticMarkup } = require('react-dom/server')
+  const owner = 'owner-a'
+  const clientId = '11111111-1111-4111-8111-111111111111'
+  const makeReminder = (id, description, dueTime) => mapLegacy('reminder', {
+    id, owner_user_id: owner, client_id: clientId, visit_id: null, business_name: 'Client',
+    description, due_date: '2026-10-03', due_time: dueTime, is_dismissed: false,
+    action_type: 'follow_up', priority: 'medium',
+  }, owner)
+  const timed = makeReminder('timed', 'Timed reminder', '14:30:00')
+  const untimed = makeReminder('untimed', 'Untimed reminder', null)
+  const app = {
+    clients: [{ id: clientId }], todayVisitsCount: 0, actionState: { status: 'loaded', actions: [timed, untimed] },
+    operationalActions: { groups: () => ({ overdue: [], today: [], upcoming: [timed, untimed], unscheduled: [] }) },
+    changeAction: async () => ({ ok: true }), openPanel() {},
+  }
+  const loadOriginal = Module._load
+  Module._load = function (request, parent, isMain) {
+    if (request === '@/contexts/AppContext') return { useApp: () => app }
+    if (request === 'next/navigation') return { usePathname: () => '/map' }
+    if (request === 'next/link') return { default: ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children) }
+    return loadOriginal.call(this, request, parent, isMain)
+  }
+  require.extensions['.tsx'] = function (module, filename) {
+    const source = fs.readFileSync(filename, 'utf8')
+    const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText
+    module._compile(compiled, filename)
+  }
+  let FieldControlPanel
+  try { FieldControlPanel = require('../components/FieldControlPanel.tsx').default }
+  finally { Module._load = loadOriginal }
+  const useStateOriginal = React.useState
+  let stateCalls = 0
+  React.useState = function (initial) { stateCalls++; return useStateOriginal(stateCalls === 1 ? true : initial) }
+  let html
+  try { html = renderToStaticMarkup(React.createElement(FieldControlPanel)) }
+  finally { React.useState = useStateOriginal }
+  assert.match(html, /Timed reminder/)
+  assert.match(html, /3 Tet 14:30/)
+  assert.match(html, /Untimed reminder/)
+  assert.doesNotMatch(html, /3 Tet 00:00/)
+})
+
 test('action detail shows stored time and leaves null time blank', () => {
   assert.equal(formatFollowupDateTime('2026-09-28', '10:00:00', { withYear: true }), '28 Shtator 2026 · 10:00')
   assert.equal(formatFollowupDateTime('2026-09-25', null, { withYear: true }), '25 Shtator 2026')
