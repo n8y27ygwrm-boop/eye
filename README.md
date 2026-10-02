@@ -1,6 +1,6 @@
 # EYE
 
-This repository is the source of record for EYE. The application baseline was recovered from the exact Phase 11 production deployment source; historical application files were not copied over it.
+This local repository contains the verified candidate source of record for EYE. The application baseline was recovered from the exact Phase 11 production deployment source; historical application files were not copied over it. GitHub `main` remains historical until this recovery branch is published and merged, so it must not be used as a production source yet.
 
 ## Development and verification
 
@@ -18,7 +18,7 @@ Do not point tests at production. The test suite uses fixtures and temporary loc
 
 ## Release rule
 
-Deploy production only from a clean, reviewed revision of this authoritative Git repository. Before deployment, record the full Git commit SHA and confirm the working tree is clean. After deployment, record the Vercel deployment ID and the exact source revision used in the release log. Confirm the production alias points to that deployment. Do not use a separate local source folder as a release source.
+After the recovery branch is published and merged, deploy production only from a clean, reviewed revision of the authoritative GitHub `main` branch. Before deployment, record the full Git commit SHA and confirm the working tree is clean. After deployment, record the Vercel deployment ID and the exact source revision used in the release log. Confirm the production alias points to that deployment. Do not use a separate local source folder as a release source.
 
 The current deployed Phase 11 release predates this rule:
 

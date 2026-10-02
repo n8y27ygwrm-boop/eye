@@ -37,3 +37,7 @@ Classification: **A** valid unchanged, **B** adapted to current intentional beha
 No recovered test was discarded. The historical tree also supplied `register.mjs`, `loader.mjs`, six fixture files, and two SQL fixtures. The seven historical migration SQL files and two development scripts were restored only as test/development inputs; no migration was applied to production. The existing Phase 11 operational test is included in `npm test`.
 
 The first concurrent full run passed 286/287 tests; the local PostgreSQL completion-event count in `client-actions-db.test.mjs` returned zero once, although that test passed alone before and after. An unchanged second full run passed 287/287. This intermittent assertion is recorded rather than hidden; CI will expose any recurrence.
+
+## Publication status
+
+The local `codex/phase12` branch includes the historical GitHub `main` lineage through a merge that preserves the production-aligned tree exactly. Automatic approval review rejected pushing the production-aligned source to the existing GitHub repository because the exact destination and payload were not expressly authorized. No remote branch, pull request, or GitHub CI run was created. Publishing and merging this branch remain required before GitHub `main` can be called authoritative.
