@@ -1,0 +1,302 @@
+import { NonRetriableError } from 'inngest'
+import { inngest } from '../client'
+import { getAdminClient } from '@/lib/supabase/server'
+import { orchestrateVisitExtraction } from '@/lib/ai/orchestrator'
+import { deterministicReminderId } from '@/lib/ai/idempotency'
+import type { VisitExtractionInput, AIProvider, VisitAIExtraction } from '@/lib/ai/types'
+import type { ProviderErrorCategory } from '@/lib/ai/errors'
+import { getActionAuthority } from '@/lib/config/action-authority'
+import { backgroundReminderOutcome } from '@/lib/actions/background-policy'
+import { assertJobAuthority } from '@/lib/actions/reminder-handover'
+
+export type AuthoritativeRecordResult = {
+  hasNotes: boolean
+  input?: VisitExtractionInput
+}
+
+export type ExtractionStepResult = {
+  hasReminder: boolean
+  alreadyExists?: boolean
+  reason?: string
+  outcome?: string
+  persisted?: boolean
+  extraction?: VisitAIExtraction
+  provider?: string
+}
+
+export type PersistStepResult = {
+  id: string
+  alreadyExists: boolean
+}
+
+export const WORKFLOW_RETRYABLE_CATEGORIES: ReadonlySet<ProviderErrorCategory> = new Set([
+  'rate_limit',
+  'timeout',
+  'network',
+  'server_error',
+  'structured_output',
+])
+
+export function isWorkflowRetryableCategory(category?: ProviderErrorCategory): boolean {
+  if (!category) return false
+  return WORKFLOW_RETRYABLE_CATEGORIES.has(category)
+}
+
+/**
+ * Step 1: Load authoritative visit and client record from database.
+ */
+export async function loadAuthoritativeRecord(
+  visitId: string,
+  ownerUserIdOrSb?: any,
+  maybeSb?: any
+): Promise<AuthoritativeRecordResult> {
+  let ownerUserId: string | undefined
+  let sb: any
+
+  if (typeof ownerUserIdOrSb === 'string') {
+    ownerUserId = ownerUserIdOrSb
+    sb = maybeSb || getAdminClient()
+  } else if (ownerUserIdOrSb && typeof ownerUserIdOrSb === 'object') {
+    sb = ownerUserIdOrSb
+    ownerUserId = undefined
+  } else {
+    sb = maybeSb || getAdminClient()
+  }
+
+  let query = sb
+    .from('visits')
+    .select('id, visit_date, business_name, shenime, client_id, owner_user_id')
+    .eq('id', visitId.trim())
+
+  if (ownerUserId) {
+    query = query.eq('owner_user_id', ownerUserId.trim())
+  }
+
+  const { data: visit, error: visitError } = await query.maybeSingle()
+
+  if (visitError || !visit) {
+    throw new NonRetriableError(`Visit ${visitId}${ownerUserId ? ` for owner ${ownerUserId}` : ''} not found or inaccessible`)
+  }
+
+  // Data minimization: if notes are empty or whitespace, exit early
+  if (!visit.shenime || !visit.shenime.trim()) {
+    return { hasNotes: false }
+  }
+
+  let clientStatus: string | null = null
+  let businessType: string | null = null
+  let zone: string | null = null
+
+  if (visit.client_id) {
+    let clientQuery = sb
+      .from('clients')
+      .select('status, business_type, zone')
+      .eq('id', visit.client_id)
+
+    const ownerFilter = ownerUserId || visit.owner_user_id
+    if (ownerFilter) {
+      clientQuery = clientQuery.eq('owner_user_id', ownerFilter.trim())
+    }
+
+    const { data: client } = await clientQuery.maybeSingle()
+
+    if (client) {
+      clientStatus = client.status
+      businessType = client.business_type
+      zone = client.zone
+    }
+  }
+
+  return {
+    hasNotes: true,
+    input: {
+      visit_id: visit.id,
+      owner_user_id: visit.owner_user_id || ownerUserId,
+      client_id: visit.client_id,
+      business_name: visit.business_name,
+      visit_date: visit.visit_date,
+      shenime: visit.shenime,
+      client_status: clientStatus,
+      business_type: businessType,
+      zone,
+    },
+  }
+}
+
+/**
+ * Step 2: Orchestrate AI extraction with pre-check idempotency and error classification.
+ */
+export async function runReminderExtraction(
+  input: VisitExtractionInput,
+  sb?: ReturnType<typeof getAdminClient>,
+  providers?: AIProvider[],
+  authority: 'LEGACY' | 'CANONICAL' = 'LEGACY'
+): Promise<ExtractionStepResult> {
+  const skipped = backgroundReminderOutcome({ visitId: input.visit_id, ownerUserId: input.owner_user_id })
+  if (skipped) return skipped
+  assertJobAuthority(authority)
+  sb ??= getAdminClient()
+  const deterministicId = deterministicReminderId(input.visit_id)
+
+  let query = sb
+    .from('ai_reminders')
+    .select('id, business_name, action_type, description')
+
+  if (input.owner_user_id) {
+    query = query.eq('owner_user_id', input.owner_user_id)
+  }
+
+  const { data: existing } = await query
+    .or(`id.eq.${deterministicId},visit_id.eq.${input.visit_id}`)
+    .maybeSingle()
+
+  if (existing) {
+    return { hasReminder: true, alreadyExists: true }
+  }
+
+  const result = await orchestrateVisitExtraction(input, providers)
+
+  if (!result.ok) {
+    if (isWorkflowRetryableCategory(result.failureCategory)) {
+      throw new Error('Transient AI processing failure')
+    }
+    throw new NonRetriableError('Permanent AI processing failure')
+  }
+
+  if (!result.extraction || !result.extraction.hasReminder || !result.extraction.description) {
+    return {
+      hasReminder: false,
+      provider: result.providerUsed,
+    }
+  }
+
+  return {
+    hasReminder: true,
+    extraction: result.extraction,
+    provider: result.providerUsed,
+  }
+}
+
+/**
+ * Step 3: Persist reminder with deterministic UUID and race-condition idempotency.
+ */
+export async function persistActionableReminder(
+  input: VisitExtractionInput,
+  extraction: VisitAIExtraction,
+  sb?: ReturnType<typeof getAdminClient>
+): Promise<PersistStepResult> {
+  assertJobAuthority('LEGACY')
+  sb ??= getAdminClient()
+  const deterministicId = deterministicReminderId(input.visit_id)
+
+  const insertPayload: Record<string, any> = {
+    id: deterministicId,
+    client_id: input.client_id,
+    visit_id: input.visit_id,
+    business_name: input.business_name,
+    action_type: extraction.actionType ?? 'follow_up',
+    description: extraction.description,
+    due_date: extraction.dueDate,
+    due_time: extraction.dueTime,
+    priority: extraction.priority ?? 'medium',
+    raw_trigger: extraction.rawTrigger,
+    is_dismissed: false,
+  }
+
+  if (input.owner_user_id) {
+    insertPayload.owner_user_id = input.owner_user_id
+  }
+
+  const { data: inserted, error: insertError } = await sb
+    .from('ai_reminders')
+    .insert(insertPayload)
+    .select('id')
+    .single()
+
+  if (insertError) {
+    // Postgres 23505 unique primary key conflict -> idempotent success
+    if (insertError.code === '23505' || insertError.message?.includes('duplicate key')) {
+      return { id: deterministicId, alreadyExists: true }
+    }
+    throw new Error(`Failed to persist reminder: ${insertError.message}`)
+  }
+
+  return { id: inserted.id, alreadyExists: false }
+}
+
+/**
+ * Canonical Inngest Durable Function for visit reminder processing.
+ */
+export async function handleVisitReminder({ event, step }: { event: { id?: string; data: { visitId: string; ownerUserId: string } }; step: { run: <T>(name: string, fn: () => Promise<T>) => Promise<T> } }) {
+    const { visitId, ownerUserId } = event.data
+
+    if (!visitId || typeof visitId !== 'string' || !visitId.trim()) {
+      throw new NonRetriableError('Missing or invalid visitId in event payload')
+    }
+
+    if (!ownerUserId || typeof ownerUserId !== 'string' || !ownerUserId.trim()) {
+      throw new NonRetriableError('Missing or invalid ownerUserId in event payload')
+    }
+
+    const authority = getActionAuthority()
+    const skipped = backgroundReminderOutcome({ eventId: event.id, visitId, ownerUserId })
+    if (skipped) {
+      console.info('[reminder-job] canonical_interactive_only', skipped.evidence)
+      return skipped
+    }
+    assertJobAuthority(authority)
+    const sb = getAdminClient()
+    const suffix = ''
+
+    // Step 1: load-authoritative-record
+    const record = await step.run(`load-authoritative-record${suffix}`, async () => {
+      assertJobAuthority(authority)
+      return loadAuthoritativeRecord(visitId, ownerUserId, sb)
+    })
+
+    if (!record.hasNotes || !record.input) {
+      return { ok: true, hasReminder: false, reason: 'blank_notes' }
+    }
+
+    // Step 2: extract-reminder
+    const extractionResult = await step.run(`extract-reminder${suffix}`, async () => {
+      assertJobAuthority(authority)
+      return runReminderExtraction(record.input!, sb, undefined, authority)
+    })
+
+    if (!extractionResult.hasReminder || !extractionResult.extraction) {
+      return {
+        ok: true,
+        hasReminder: extractionResult.hasReminder,
+        alreadyExists: extractionResult.alreadyExists ?? false,
+        provider: extractionResult.provider,
+      }
+    }
+
+    // Step 3: persist-reminder
+    const persistenceResult = await step.run(`persist-reminder${suffix}`, async () => {
+      assertJobAuthority(authority)
+      return persistActionableReminder(record.input!, extractionResult.extraction!, sb)
+    })
+
+    return {
+      ok: true,
+      hasReminder: true,
+      reminderId: persistenceResult.id, alreadyExists: persistenceResult.alreadyExists,
+    }
+}
+
+export const processVisitReminder = inngest.createFunction(
+  {
+    id: 'process-visit-reminder',
+    retries: 2,
+    triggers: [{ event: 'eye/visit.saved' }],
+    onFailure: async ({ event }) => {
+      // Inngest retains failed runs and the original event. Never acknowledge them as done,
+      // cancel them, print notes/tokens, or silently drop an event at an authority boundary.
+      const original = event.data.event
+      console.error('[reminder-job] replay_required', { eventId: original.id, visitId: original.data.visitId, ownerUserId: original.data.ownerUserId })
+    },
+  },
+  handleVisitReminder
+)
