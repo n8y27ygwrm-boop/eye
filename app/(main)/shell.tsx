@@ -423,7 +423,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
       {/* ── IMPORT INBOX MODAL ─────────────────────────────────────────────────── */}
       {importModalOpen && (
-        <div className="modal-overlay-center import-modal-overlay" onClick={e => e.target === e.currentTarget && closeImportModal()}>
+        <div className="modal-overlay-center import-modal-overlay">
           <ImportModal />
         </div>
       )}

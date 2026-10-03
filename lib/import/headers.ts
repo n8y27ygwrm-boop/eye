@@ -11,6 +11,12 @@ export type CanonicalFieldKey =
   | "address"
   | "zone"
   | "business_type"
+  | "lat"
+  | "lng"
+  | "contact_person"
+  | "status"
+  | "order_value"
+  | "decline_reason"
 
 function simplifyHeader(h: string): string {
   return h
@@ -52,6 +58,8 @@ const HEADER_ALIASES: Record<CanonicalFieldKey, string[]> = {
     "google maps search link",
     "map link",
     "maps url",
+    "google maps url",
+    "map url",
     "link",
     "linku",
     "vendndodhja",
@@ -63,6 +71,7 @@ const HEADER_ALIASES: Record<CanonicalFieldKey, string[]> = {
   general_notes: [
     "note",
     "notes",
+    "data note",
     "comment",
     "comments",
     "shenime",
@@ -98,6 +107,7 @@ const HEADER_ALIASES: Record<CanonicalFieldKey, string[]> = {
     "zone",
     "zona",
     "lagja",
+    "address group",
   ],
   business_type: [
     "category",
@@ -108,6 +118,12 @@ const HEADER_ALIASES: Record<CanonicalFieldKey, string[]> = {
     "tipi i biznesit",
     "lloji i biznesit",
   ],
+  lat: ["latitude", "lat", "gjeresia gjeografike"],
+  lng: ["longitude", "lng", "lon", "gjatesia gjeografike"],
+  contact_person: ["contact person", "contact", "contact name", "personi i kontaktit", "person kontakti"],
+  status: ["status", "client status", "statusi"],
+  order_value: ["order value", "total order value", "vlera e porosive", "vlera totale e porosive"],
+  decline_reason: ["decline reason", "reason for declining", "arsyeja e refuzimit"],
 }
 
 /**

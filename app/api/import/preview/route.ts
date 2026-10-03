@@ -7,7 +7,7 @@ import { buildHeaderMapping } from "@/lib/import/headers"
 import { normalizeRawRecord } from "@/lib/import/normalize"
 import { detectDuplicates } from "@/lib/import/dedupe"
 import { classifyImportRows } from "@/lib/import/ai-classify"
-import { determineRowStatus } from "@/lib/import/validation"
+import { determineRowStatus, buildCommitItem, validateCommitRow } from "@/lib/import/validation"
 import type { ImportPreviewRow, ImportPreviewSummary, SourceFacts, NormalizedRow } from "@/lib/import/types"
 import type { Client } from "@/lib/types"
 
@@ -97,6 +97,7 @@ export async function POST(req: NextRequest) {
 
   // 3. Build Header Mapping & Normalize Records
   const headerMap = buildHeaderMapping(headers)
+  const ignoredHeaders = headers.filter(header => !Object.prototype.hasOwnProperty.call(headerMap, header))
   const normalizedList: { sourceFacts: SourceFacts; normalized: NormalizedRow }[] = []
 
   for (let i = 0; i < records.length; i++) {
@@ -127,13 +128,32 @@ export async function POST(req: NextRequest) {
     const duplicate = duplicates[i]
     const aiDerived = aiResults[i]
 
-    const { status, missingName } = determineRowStatus(normalized, duplicate, aiDerived)
+    let { status, missingName } = determineRowStatus(normalized, duplicate, aiDerived)
+    const previewRow: ImportPreviewRow = {
+      id: `row-${i}`,
+      source_row_index: i,
+      sourceFacts,
+      normalized,
+      aiDerived,
+      duplicate,
+      missingName,
+      status,
+      include: false,
+      duplicateResolution: duplicate.isDuplicate ? "skip" : "import_new",
+    }
+    const validation = validateCommitRow(buildCommitItem(previewRow), user.id)
+    if (!validation.valid && !missingName) {
+      normalized.warnings = [...(normalized.warnings ?? []), validation.error]
+      status = "INVALID"
+    }
 
     // Default include policy: include if ready or duplicate (user decides resolution), exclude if missing name
-    const include = !missingName && status !== "INVALID"
+    const include = !missingName && status !== "INVALID" && !duplicate.isDuplicate
 
     if (missingName) {
       needsReviewCount++
+    } else if (status === "INVALID") {
+      invalidCount++
     } else if (duplicate.isDuplicate) {
       duplicateCount++
     } else if (status === "READY_WITHOUT_ENRICHMENT") {
@@ -144,16 +164,9 @@ export async function POST(req: NextRequest) {
     }
 
     previewRows.push({
-      id: `row-${i}`,
-      source_row_index: i,
-      sourceFacts,
-      normalized,
-      aiDerived,
-      duplicate,
-      missingName,
+      ...previewRow,
       status,
       include,
-      duplicateResolution: duplicate.isDuplicate ? "skip" : "import_new",
     })
   }
 
@@ -171,5 +184,7 @@ export async function POST(req: NextRequest) {
     success: true,
     summary,
     rows: previewRows,
+    headerMapping: headerMap,
+    ignoredHeaders,
   })
 }

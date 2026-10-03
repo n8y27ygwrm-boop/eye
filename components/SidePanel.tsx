@@ -1,14 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useApp } from '@/contexts/AppContext'
 import { statusInfo, STATUS_DEFS, fmtDate, todayISO, type Client } from '@/lib/types'
-import { getFollowupInfo, formatFollowupDate, addDaysISO } from '@/lib/followup'
+import { attentionBadge, deriveClientAttention } from '@/lib/actions/attention'
+import type { OperationalAction, SurfaceCommand } from '@/lib/actions/types'
+import { formatFollowupDate, formatFollowupDateTime, formatHistoryDate, addDaysISO } from '@/lib/followup'
 
 type FuMode = 'view' | 'edit' | 'reschedule'
 
 export default function SidePanel() {
-  const { activeClient: client, closePanel, updateClient, openVisitModal, visits, visitsLoaded, loadVisits } = useApp()
+  const { activeClient: client, closePanel, updateClient, openVisitModal, visits, visitsLoaded, visitsError, loadVisits, operationalActions, actionState, actionAttention, changeAction } = useApp()
 
   const [editing, setEditing] = useState<Partial<Client>>({})
   const [saving, setSaving] = useState(false)
@@ -18,15 +20,31 @@ export default function SidePanel() {
   const [fuMode, setFuMode] = useState<FuMode>('view')
   const [fuAction, setFuAction] = useState('')
   const [fuDate, setFuDate] = useState('')
+  const [fuTime, setFuTime] = useState('')
   const [fuRescheduleDate, setFuRescheduleDate] = useState('')
   const [fuConfirmDone, setFuConfirmDone] = useState(false)
   const [fuSaving, setFuSaving] = useState(false)
+  const fuSavingRef = useRef(false)
   const [fuError, setFuError] = useState('')
+  const [historyError, setHistoryError] = useState('')
+  const fuTargetRef = useRef<OperationalAction | null>(null)
+  const attention = client ? actionAttention(client.id) : null
+  const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
+  const selectedAction = attention?.open.find(a => a.id === selectedActionId) ?? attention?.nearest ?? null
+  const historyRecords = client ? operationalActions.clientSnapshot(client.id) : undefined
+  useEffect(() => {
+    if (!client || actionState.status !== 'loaded') return
+    let current = true
+    setHistoryError('')
+    void operationalActions.forClient(client.id).catch(cause => { if (current) setHistoryError(cause instanceof Error ? cause.message : 'Historia nuk u ngarkua') })
+    return () => { current = false }
+  }, [client?.id, actionState.status, actionState.status === 'loaded' ? actionState.actions : null, operationalActions])
 
   // Reset local edits and errors whenever we switch to a different client
   useEffect(() => {
     setEditing({})
     setSaveError('')
+    setSelectedActionId(null)
     setFuMode('view')
     setFuConfirmDone(false)
     setFuError('')
@@ -63,48 +81,63 @@ export default function SidePanel() {
 
   // Follow-up handlers
   function startAddFollowup() {
+    fuTargetRef.current = null
     setFuAction('')
     setFuDate(todayISO())
+    setFuTime('')
     setFuError('')
     setFuConfirmDone(false)
     setFuMode('edit')
   }
 
-  function startEditFollowup() {
-    setFuAction(client?.next_action || '')
-    setFuDate(client?.next_followup || todayISO())
+  function startEditFollowup(target = selectedAction) {
+    fuTargetRef.current = target
+    setFuAction(target?.description || '')
+    setFuDate(target?.due_date || '')
+    setFuTime(target?.due_time || '')
     setFuError('')
     setFuConfirmDone(false)
     setFuMode('edit')
   }
 
   function startReschedule() {
-    setFuRescheduleDate(client?.next_followup || todayISO())
+    fuTargetRef.current = selectedAction
+    setFuRescheduleDate(selectedAction?.due_date || todayISO())
     setFuError('')
     setFuConfirmDone(false)
     setFuMode('reschedule')
   }
 
   async function handleSaveFollowupEdit() {
-    if (!client) return
+    if (!client || fuSavingRef.current) return
     const trimmedAction = fuAction.trim()
     const trimmedDate = fuDate.trim()
-    if (!trimmedAction || !trimmedDate) {
-      setFuError('Ju lutem vendosni veprimin dhe datën e afatit.')
+    if (!trimmedAction) {
+      setFuError('Ju lutem vendosni veprimin.')
       return
     }
+    const target = fuTargetRef.current
+    const dueTime = target?.version != null ? fuTime.trim() || null : target?.due_time ?? null
+    if (target?.version != null && dueTime && !trimmedDate) {
+      setFuError('Ora kërkon një datë të afatit.')
+      return
+    }
+    fuSavingRef.current = true
     setFuSaving(true)
     setFuError('')
-    const res = await updateClient(client.id, {
-      next_action: trimmedAction,
-      next_followup: trimmedDate,
-    })
-    setFuSaving(false)
-    if (!res.ok) {
-      setFuError(res.error?.message || 'Ruajtja e follow-up dështoi.')
-      return
+    try {
+      const res = await changeAction({ operation: 'surface', intent: target ? 'edit' : 'create', requestId: crypto.randomUUID(), channel: 'client_detail', clientId: client.id, actionId: target?.id, expectedVersion: target?.version, expectedRevision: target?.revision, fields: { description: trimmedAction, action_type: target?.action_type ?? 'follow_up', due_date: trimmedDate || null, due_time: dueTime, priority: target?.priority ?? 'medium' } })
+      if (!res.ok) {
+        setFuError(res.error || 'Ruajtja e follow-up dështoi.')
+        return
+      }
+      setFuMode('view')
+    } catch (cause) {
+      setFuError(cause instanceof Error ? cause.message : 'Ruajtja e follow-up dështoi.')
+    } finally {
+      fuSavingRef.current = false
+      setFuSaving(false)
     }
-    setFuMode('view')
   }
 
   async function handleSaveReschedule() {
@@ -116,13 +149,12 @@ export default function SidePanel() {
     }
     setFuSaving(true)
     setFuError('')
-    // Reschedule modifies ONLY next_followup, preserving next_action (even if null)
-    const res = await updateClient(client.id, {
-      next_followup: trimmedDate,
-    })
+    const target = fuTargetRef.current
+    if (!target) { setFuSaving(false); setFuError('Veprimi nuk është më i disponueshëm.'); return }
+    const res = await changeAction({ operation: 'surface', intent: 'reschedule', requestId: crypto.randomUUID(), channel: 'client_detail', clientId: client.id, actionId: target.id, expectedVersion: target.version, expectedRevision: target.revision, fields: { description: target.description, action_type: target.action_type, due_date: trimmedDate, due_time: target.due_time, priority: target.priority } })
     setFuSaving(false)
     if (!res.ok) {
-      setFuError(res.error?.message || 'Riprogramimi dështoi.')
+      setFuError(res.error || 'Riprogramimi dështoi.')
       return
     }
     setFuMode('view')
@@ -132,13 +164,12 @@ export default function SidePanel() {
     if (!client) return
     setFuSaving(true)
     setFuError('')
-    const res = await updateClient(client.id, {
-      next_action: null,
-      next_followup: null,
-    })
+    const target = fuTargetRef.current
+    if (!target) { setFuSaving(false); setFuError('Veprimi nuk është më i disponueshëm.'); return }
+    const res = await changeAction({ operation: 'surface', intent: 'complete', requestId: crypto.randomUUID(), channel: 'client_detail', clientId: client.id, actionId: target.id, expectedVersion: target.version, expectedRevision: target.revision })
     setFuSaving(false)
     if (!res.ok) {
-      setFuError(res.error?.message || 'Shënimi i përfundimit dështoi.')
+      setFuError(res.error || 'Shënimi i përfundimit dështoi.')
       return
     }
     setFuConfirmDone(false)
@@ -151,8 +182,9 @@ export default function SidePanel() {
   const clientVisits = (client ? visits.filter(v => v.client_id === client.id) : [])
     .sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '') || (b.created_at || '').localeCompare(a.created_at || ''))
 
-  const hasActiveFollowup = Boolean(client.next_followup)
-  const followupInfo = getFollowupInfo(client.next_followup)
+  const hasActiveFollowup = Boolean(selectedAction)
+  const actionAttentionForSelected = selectedAction ? deriveClientAttention([selectedAction], client.id).group : null
+  const followupInfo = { cls: attentionBadge(selectedAction ? actionAttentionForSelected : null, selectedAction?.due_date)?.cls ?? '', badgeText: attentionBadge(selectedAction ? actionAttentionForSelected : null, selectedAction?.due_date)?.label ?? '' }
 
   return (
     <div className="side-panel open" role="dialog" aria-modal="true">
@@ -286,6 +318,45 @@ export default function SidePanel() {
           </div>
         </div>
 
+        {/* Latest visit before operational actions */}
+        {/* Order value */}
+        <div className="sp-field">
+          <label>Vlera e porosisë (ALL)</label>
+          <input
+            type="number"
+            value={field('order_value') ?? ''}
+            onChange={e => set('order_value', e.target.value === '' ? null : parseFloat(e.target.value))}
+            placeholder="0"
+          />
+        </div>
+
+        {/* General notes */}
+        <div className="sp-field">
+          <label>Shënime</label>
+          <textarea
+            value={field('general_notes') ?? ''}
+            onChange={e => set('general_notes', e.target.value)}
+            rows={3}
+            placeholder="Shënime të përgjithshme…"
+          />
+        </div>
+
+        {/* Save button */}
+        {Object.keys(editing).length > 0 && (
+          <div>
+            <button className="btn-save" onClick={save} disabled={saving}>
+              {saving ? 'Duke ruajtur…' : 'Ruaj ndryshimet'}
+            </button>
+            {saveError && (
+              <div style={{ color: 'var(--danger, #EF4444)', fontSize: '12px', marginTop: '6px' }}>
+                {saveError}
+              </div>
+            )}
+          </div>
+        )}
+
+
+        <div className="sp-section" style={{ marginBottom: 12 }}><label>Vizita e fundit</label>{visitsError ? <div role="alert">{visitsError}<button type="button" onClick={loadVisits}>Provo përsëri</button></div> : !visitsLoaded ? <div>Duke ngarkuar vizitat…</div> : clientVisits[0] ? <div className="sp-static">{formatHistoryDate(clientVisits[0].visit_date)} · {clientVisits[0].shenime || statusInfo(clientVisits[0].statusi).label}</div> : <div className="sp-static">Nuk ka vizita të regjistruara.</div>}</div>
         {/* OPERATIONAL BLOCK: NEXT ACTION */}
         <div className="sp-followup-block">
           <div className="sp-fu-header">
@@ -322,6 +393,12 @@ export default function SidePanel() {
                   onChange={e => setFuDate(e.target.value)}
                 />
               </div>
+              {fuTargetRef.current?.version != null && (
+                <div className="sp-field">
+                  <label htmlFor="followup-due-time">Ora e afatit</label>
+                  <input id="followup-due-time" type="time" step="1" value={fuTime} onChange={e => setFuTime(e.target.value)} />
+                </div>
+              )}
               <div className="sp-fu-actions">
                 <button
                   type="button"
@@ -415,19 +492,19 @@ export default function SidePanel() {
           {/* MODE: VIEW */}
           {fuMode === 'view' && (
             <>
-              {hasActiveFollowup ? (
+              {actionState.status !== 'loaded' ? <div className="sp-fu-error" role={actionState.status === 'query_error' || actionState.status === 'authentication_error' ? 'alert' : 'status'}>{actionState.status === 'authentication_error' ? 'Identifikohu për veprimet.' : actionState.status === 'query_error' ? 'Veprimet nuk u ngarkuan.' : 'Duke ngarkuar veprimet…'}</div> : hasActiveFollowup ? (
                 <div className="sp-fu-content">
                   <div className="sp-fu-row">
                     <span className="sp-fu-label">Veprimi:</span>
-                    <span className={`sp-fu-val ${!client.next_action ? 'sp-fu-empty' : ''}`}>
-                      {client.next_action || 'Veprimi nuk është përcaktuar'}
+                    <span className={`sp-fu-val ${!selectedAction?.description ? 'sp-fu-empty' : ''}`}>
+                      {selectedAction?.description || 'Veprimi nuk është përcaktuar'}
                     </span>
                   </div>
 
                   <div className="sp-fu-row">
                     <span className="sp-fu-label">Afati:</span>
                     <span className="sp-fu-val sp-fu-due">
-                      {formatFollowupDate(client.next_followup, { withYear: true })}
+                      {formatFollowupDateTime(selectedAction?.due_date, selectedAction?.due_time, { withYear: true })}
                     </span>
                   </div>
 
@@ -458,7 +535,8 @@ export default function SidePanel() {
                       <button
                         type="button"
                         className="sp-fu-tool-btn"
-                        onClick={startEditFollowup}
+                        onClick={() => startEditFollowup()}
+                        disabled={!selectedAction?.allowed_operations?.includes('edit')}
                       >
                         Ndrysho
                       </button>
@@ -466,15 +544,17 @@ export default function SidePanel() {
                         type="button"
                         className="sp-fu-tool-btn"
                         onClick={startReschedule}
+                        disabled={!selectedAction?.allowed_operations?.includes('reschedule')}
                       >
                         Riprogramo
                       </button>
                       <button
                         type="button"
                         className="sp-fu-tool-btn sp-fu-done-btn"
-                        onClick={() => setFuConfirmDone(true)}
+                        onClick={() => { fuTargetRef.current = selectedAction; setFuConfirmDone(true) }}
+                        disabled={!selectedAction?.allowed_operations?.includes('complete')}
                       >
-                        ✓ Mark Done
+                        ✓ Shëno si të kryer
                       </button>
                     </div>
                   )}
@@ -495,41 +575,10 @@ export default function SidePanel() {
           )}
         </div>
 
-        {/* Order value */}
-        <div className="sp-field">
-          <label>Vlera e porosisë (ALL)</label>
-          <input
-            type="number"
-            value={field('order_value') ?? ''}
-            onChange={e => set('order_value', e.target.value === '' ? null : parseFloat(e.target.value))}
-            placeholder="0"
-          />
+        {attention && attention.open.length > 1 && <div className="sp-followup-block"><div className="sp-fu-title">VEPRIME TË TJERA</div>{attention.open.filter(a => a.id !== selectedAction?.id).map(a => <div className="sp-fu-row" key={a.id}><span>{a.description} · {a.due_date ? formatFollowupDate(a.due_date) : 'Pa afat'}</span>{a.allowed_operations?.includes('edit') && <button type="button" className="sp-fu-tool-btn" disabled={fuSaving} onClick={() => { setSelectedActionId(a.id); startEditFollowup(a) }}>Ndrysho</button>}<button type="button" className="sp-fu-tool-btn" disabled={fuSaving || !a.allowed_operations?.includes('complete')} onClick={() => changeAction({ operation: 'surface', intent: 'complete', requestId: crypto.randomUUID(), channel: 'client_detail', clientId: client.id, actionId: a.id, expectedVersion: a.version, expectedRevision: a.revision })}>✓ Kryer</button></div>)}</div>}
+        <div className="sp-section" style={{ marginTop: 12 }}><label>Historia e veprimeve</label>
+          {historyError ? <div role="alert">{historyError}</div> : actionState.status !== 'loaded' ? <div>Duke ngarkuar…</div> : !operationalActions.capabilities?.history ? <div className="sp-static">Historia e përfundimeve nuk është regjistruar në burimin aktual.{historyRecords?.filter(a => a.state === 'legacy_closed').map(a => <div key={a.id}>{a.description} — Mbyllur më parë (pa aktor ose datë përfundimi)</div>)}</div> : <div>{historyRecords?.map(a => <div key={a.id}><button type="button" className="sp-fu-tool-btn" onClick={() => operationalActions.history(a.id).catch(cause => setHistoryError(cause.message))}>{a.description} · {({ open: 'Hapur', completed: 'Përfunduar', cancelled: 'Anuluar', replaced: 'Zëvendësuar', legacy_closed: 'Mbyllur më parë' } as const)[a.state]}</button>{operationalActions.historySnapshot(a.id)?.map(event => <div key={event.id}>{({ completed: 'Përfunduar', created: 'Krijuar', imported: 'Importuar', updated: 'Përditësuar' } as Record<string, string>)[event.event_type] ?? event.event_type} · {formatHistoryDate(event.recorded_at)}</div>)}</div>)}</div>}
         </div>
-
-        {/* General notes */}
-        <div className="sp-field">
-          <label>Shënime</label>
-          <textarea
-            value={field('general_notes') ?? ''}
-            onChange={e => set('general_notes', e.target.value)}
-            rows={3}
-            placeholder="Shënime të përgjithshme…"
-          />
-        </div>
-
-        {/* Save button */}
-        {Object.keys(editing).length > 0 && (
-          <div>
-            <button className="btn-save" onClick={save} disabled={saving}>
-              {saving ? 'Duke ruajtur…' : 'Ruaj ndryshimet'}
-            </button>
-            {saveError && (
-              <div style={{ color: 'var(--danger, #EF4444)', fontSize: '12px', marginTop: '6px' }}>
-                {saveError}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Add visit shortcut */}
         <button
@@ -547,7 +596,7 @@ export default function SidePanel() {
             </span>
           </div>
 
-          {clientVisits.length === 0 ? (
+          {visitsError ? <div role="alert">{visitsError}</div> : !visitsLoaded ? <div>Duke ngarkuar vizitat…</div> : clientVisits.length === 0 ? (
             <div style={{ fontSize: '12px', color: 'var(--text-3)', fontStyle: 'italic', padding: '6px 0' }}>
               Nuk ka vizita të regjistruara për këtë klient.
             </div>
@@ -567,7 +616,7 @@ export default function SidePanel() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ fontWeight: 500, color: 'var(--text-1)' }}>{fmtDate(v.visit_date)}</span>
+                      <span style={{ fontWeight: 500, color: 'var(--text-1)' }}>{formatHistoryDate(v.visit_date)}</span>
                       <span className={`status-badge ${sInfo.cls}`} style={{ fontSize: '10px', padding: '2px 6px' }}>
                         {sInfo.label}
                       </span>

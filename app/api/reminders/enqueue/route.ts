@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthenticatedUser } from '@/lib/supabase/server'
 import { inngest } from '@/lib/inngest/client'
+import { assertOperationalWritesEnabled } from '@/lib/config/write-maintenance'
+import { backgroundReminderOutcome } from '@/lib/actions/background-policy'
 
 export const runtime = 'nodejs'
 export const maxDuration = 15
@@ -12,6 +14,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    assertOperationalWritesEnabled()
     const body = await req.json().catch(() => ({}))
     const visitId = body?.visit_id
 
@@ -30,7 +33,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Visit not found or inaccessible' }, { status: 404 })
     }
 
-    // Emit canonical minimal event to Inngest with authenticated owner identity (strictly server-side)
+    const skipped = backgroundReminderOutcome({ visitId: visit.id, ownerUserId: user.id })
+    if (skipped) return NextResponse.json(skipped)
+
+    // LEGACY minimal event with authenticated owner identity (strictly server-side)
     await inngest.send({
       name: 'eye/visit.saved',
       data: {

@@ -3,7 +3,9 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import { useApp } from '@/contexts/AppContext'
+import { attentionBadge } from '@/lib/actions/attention'
 import { statusInfo, TIRANA_CENTER, TIRANA_ZOOM } from '@/lib/types'
+import { groupClientsByCoordinates, isUnlocated } from '@/lib/location/group'
 
 // ── Escape helpers ────────────────────────────────────────────────────────────
 function esc(s: string | null | undefined) {
@@ -33,9 +35,19 @@ function makeIcon(color: string, isActive: boolean) {
   })
 }
 
+function makeSharedIcon(count: number) {
+  return L.divIcon({
+    html: `<div class="pin-shared" aria-label="${count} klientë në këtë pikë">${count}</div>`,
+    className: '',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  })
+}
+
 export default function MapView() {
-  const { filteredClients, openPanel, setUnlocatedOnly, currentLocation, enableLocation } = useApp()
+  const { filteredClients, openPanel, setUnlocatedOnly, currentLocation, enableLocation, actionAttention, actionState } = useApp()
   const mapRef = useRef<L.Map | null>(null)
+  const lastBoundsRef = useRef('')
   const layerRef = useRef<L.LayerGroup | null>(null)
   const locationLayerRef = useRef<L.LayerGroup | null>(null)
   const hasInitialCenteredRef = useRef<boolean>(false)
@@ -75,12 +87,17 @@ export default function MapView() {
 
     const withCoords = filteredClients.filter(c => c.lat != null && c.lng != null)
 
-    withCoords.forEach(c => {
+    const byCoordinate = groupClientsByCoordinates(withCoords)
+
+    byCoordinate.forEach(group => {
+      const c = group[0]
+      const attention = actionAttention(c.id)
+      const badge = attentionBadge(attention?.group ?? null, attention?.nearest?.due_date)
       const info = statusInfo(c.status)
       const icon = makeIcon(info.color, info.key === 'active')
       const phoneClean = (c.phone ?? '').replace(/[^\d+]/g, '')
       const mapsHref = c.maps_url ?? `https://maps.google.com/?q=${c.lat},${c.lng}`
-      const popup = `
+      const singlePopup = `
         <div class="popup-title">${esc(c.business_name)}</div>
         ${c.address ? `<div class="popup-meta">${esc(c.address)}</div>` : ''}
         <div class="popup-meta">
@@ -88,28 +105,40 @@ export default function MapView() {
           ${c.zone ? `<span class="zone-badge" style="margin-left:4px">${esc(c.zone)}</span>` : ''}
         </div>
         ${phoneClean ? `<div class="popup-meta">📞 <a href="tel:${escAttr(phoneClean)}" class="popup-phone-link">${esc(c.phone)}</a></div>` : ''}
+        ${badge ? `<div class="popup-meta"><span class="fu-badge ${badge.cls}">${esc(badge.label)}</span> ${esc(attention?.nearest?.description)}</div>` : ''}
         <div class="popup-actions">
           <button class="popup-btn" data-id="${c.id}">Detaje</button>
           <a class="popup-btn maps-btn" href="${escAttr(mapsHref)}" target="_blank" rel="noopener">📍 Hap Maps</a>
         </div>`
-      const m = L.marker([c.lat!, c.lng!], { icon })
-      m.bindPopup(popup)
+      const popup = group.length === 1 ? singlePopup : `
+        <div class="popup-title">${group.length} klientë në këtë pikë</div>
+        <div class="popup-meta">Zgjidh klientin për të hapur detajet.</div>
+        <div class="popup-chooser">${group.map(item => `<button type="button" class="popup-choice" data-id="${item.id}"><span>${esc(item.business_name)}</span>${item.zone ? `<small>${esc(item.zone)}</small>` : ''}</button>`).join('')}</div>`
+      const m = L.marker([c.lat!, c.lng!], {
+        icon: group.length === 1 ? icon : makeSharedIcon(group.length),
+        zIndexOffset: group.length > 1 ? 500 + group.length : 0,
+      })
+      m.bindPopup(popup, { maxWidth: 300 })
       m.on('popupopen', () => {
-        const btn = m.getPopup()?.getElement()?.querySelector('[data-id]') as HTMLElement | null
-        if (btn) btn.onclick = () => openPanelRef.current(btn.dataset.id!)
+        m.getPopup()?.getElement()?.querySelectorAll<HTMLElement>('[data-id]').forEach(btn => {
+          btn.onclick = () => openPanelRef.current(btn.dataset.id!)
+        })
       })
       layer.addLayer(m)
     })
 
+    const boundsKey = withCoords.map(c => `${c.id}:${c.lat}:${c.lng}`).join('|')
+    if (boundsKey === lastBoundsRef.current) return
+    lastBoundsRef.current = boundsKey
     if (withCoords.length > 0) {
       const bounds = withCoords.map(c => [c.lat!, c.lng!] as [number, number])
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 })
     } else {
       map.setView(TIRANA_CENTER, TIRANA_ZOOM)
     }
-  }, [filteredClients])
+  }, [filteredClients, actionState])
 
-  const unlocatedWithUrl = filteredClients.filter(c => (c.lat == null || c.lng == null) && c.maps_url)
+  const unlocated = filteredClients.filter(isUnlocated)
   const withCoords = filteredClients.filter(c => c.lat != null && c.lng != null)
 
   // ── Render agent location marker & accuracy circle ────────────────────────
@@ -179,12 +208,13 @@ export default function MapView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {actionState.status !== 'loaded' && <div className="summary-bar" role={actionState.status === 'query_error' || actionState.status === 'authentication_error' ? 'alert' : 'status'}>{actionState.status === 'authentication_error' ? 'Identifikohu për veprimet.' : actionState.status === 'query_error' ? 'Veprimet nuk u ngarkuan.' : 'Duke ngarkuar veprimet…'}</div>}
       <div className="map-wrap">
         <div id="map" ref={containerRef} />
 
-        {unlocatedWithUrl.length > 0 && (
+        {unlocated.length > 0 && (
           <button className="unlocated-badge" onClick={goToUnlocated}>
-            <span className="num">{unlocatedWithUrl.length}</span> pa koordinata
+            <span className="num">{unlocated.length}</span> pa koordinata
           </button>
         )}
 
@@ -213,27 +243,20 @@ export default function MapView() {
       </div>
 
       {/* Unlocated list panel below map */}
-      {unlocatedWithUrl.length > 0 && (
+      {unlocated.length > 0 && (
         <div className="no-loc-panel">
           <div className="nlp-head">
             <h3>Pa koordinata</h3>
-            <span className="nlp-count">{unlocatedWithUrl.length}</span>
+            <span className="nlp-count">{unlocated.length}</span>
           </div>
           <div>
-            {unlocatedWithUrl.slice(0, 200).map(c => (
-              <a
-                key={c.id}
-                className="nlp-item"
-                href={c.maps_url!}
-                target="_blank"
-                rel="noopener"
-              >
-                <span className="nm">
-                  {c.business_name}
-                  {c.zone && <span className="zh">· {c.zone}</span>}
-                </span>
-                <span className="ic">📍</span>
-              </a>
+            {unlocated.map(c => (
+              <div key={c.id} className="nlp-item">
+                <button type="button" className="nlp-client" onClick={() => openPanel(c.id)}>
+                  {c.business_name}{c.zone && <span className="zh"> · {c.zone}</span>}
+                </button>
+                {c.maps_url && <a href={c.maps_url} target="_blank" rel="noopener" aria-label={`Hap Maps për ${c.business_name}`}>📍</a>}
+              </div>
             ))}
           </div>
         </div>

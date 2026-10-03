@@ -724,6 +724,9 @@ a:hover {
   background: var(--surface-2);
   border-color: var(--border-focus);
 }
+.map-wrap:has(.leaflet-popup) .unlocated-badge {
+  visibility: hidden;
+}
 .unlocated-badge .num {
   color: var(--crimson-text);
   font-weight: 600;
@@ -826,6 +829,38 @@ a:hover {
   border-color: var(--crimson-border);
   color: var(--crimson-text);
 }
+.pin-shared {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-burgundy);
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .6);
+  font-size: 11px;
+  font-weight: 700;
+}
+.popup-chooser {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.popup-choice {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 4px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+}
+.popup-choice:hover, .popup-choice:focus-visible { background: var(--surface-2); }
+.popup-choice small { color: var(--text-3); }
 
 .pin-active {
   animation: pulse 1.8s infinite;
@@ -1991,6 +2026,20 @@ body:has(.side-panel.open) .ai-fab {
   border: 1px solid var(--border);
 }
 
+.ai-action-confirm {
+  align-self: flex-start;
+  width: min(86%, 280px);
+  padding: 9px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.ai-action-kicker { margin-bottom: 7px; color: var(--text-3); font-family: monospace; font-size: 9.5px; font-weight: 700; letter-spacing: .7px; }
+.ai-action-buttons { display: flex; gap: 6px; }
+.ai-action-btn { flex: 1; min-height: 30px; padding: 5px 9px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 11px; font-weight: 600; }
+.ai-action-btn:hover { color: var(--text); border-color: var(--border-focus); }
+.ai-action-btn--confirm { background: #131E17; border-color: #1F3827; color: #86EFAC; }
+
 .ai-input-row {
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0));
   border-top: 1px solid var(--border);
@@ -2390,6 +2439,9 @@ body:has(.side-panel.open) .ai-fab {
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .fc-action-item:hover {
   background: var(--surface-3);
@@ -2405,6 +2457,7 @@ body:has(.side-panel.open) .ai-fab {
 
 .fc-action-main {
   min-width: 0;
+  flex: 1;
 }
 .fc-action-name {
   font-size: 12.5px;
@@ -2422,13 +2475,17 @@ body:has(.side-panel.open) .ai-fab {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.fc-action-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
 .fc-action-time {
   font-size: 10.5px;
   font-weight: 500;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
-  margin-top: 4px;
+  margin-top: 0;
 }
+.fc-action-done { min-height: 26px; padding: 3px 7px; border-radius: 4px; border: 1px solid #1F3827; background: #131E17; color: #86EFAC; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.fc-action-done:hover:not(:disabled) { background: #193223; }
+.fc-action-done:disabled { opacity: .55; cursor: wait; }
 .fc-time-overdue {
   color: var(--crimson-text);
   font-weight: 600;
@@ -3385,6 +3442,17 @@ body:has(.side-panel.open) .ai-fab {
   color: var(--text-3);
   font-size: 11px;
 }
+.nlp-client {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nlp-client:hover, .nlp-client:focus-visible { color: var(--text); text-decoration: underline; }
 
 
 /* ── Popup Phone Link (Burgundy Accent) ─────────────────────────────────────── */
@@ -4439,7 +4507,7 @@ body:has(.side-panel.open) .ai-fab {
 }
 
 .import-row-card.is-excluded {
-  opacity: 0.55;
+  background: var(--surface);
   border-left-color: var(--text-3);
 }
 
@@ -4885,4 +4953,104 @@ body:has(.side-panel.open) .ai-fab {
   .imp-btn-back {
     text-align: center;
   }
+}
+
+.imp-mapping-panel,
+.irc-validation-warnings,
+.irc-final-values {
+  padding: 12px 14px;
+  border: 1px solid var(--border, #ded6d8);
+  border-radius: 10px;
+  margin: 10px 14px;
+  overflow-wrap: anywhere;
+}
+
+.imp-mapping-panel > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.imp-mapping-pill {
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: var(--accent-burgundy-subtle);
+  border: 1px solid var(--accent-burgundy-glow);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.imp-mapping-panel {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.imp-ignored-headers {
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 3px solid #F59E0B;
+  padding: 8px 10px;
+  margin-bottom: 0;
+}
+
+.irc-validation-warnings {
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.imp-ai-notice {
+  margin: 10px 20px 0;
+  padding: 9px 12px;
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.irc-validation-warnings ul { margin: 6px 0 0 18px; }
+.irc-final-values { margin: 10px 0 0; }
+.irc-final-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
+.irc-final-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; }
+.irc-final-item span { color: var(--text-2); }
+.irc-final-item strong { font-weight: 600; overflow-wrap: anywhere; }
+
+.imp-confirm {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 260px;
+}
+
+.imp-confirm-content {
+  padding: 28px 24px;
+  color: var(--text);
+}
+
+.imp-confirm-content h3 {
+  margin: 12px 0;
+  font-size: 20px;
+}
+
+.imp-confirm-content p {
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.imp-confirm-content strong { color: var(--text); }
+
+.imp-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 768px) {
+  .imp-confirm-actions { flex-direction: column; }
 }

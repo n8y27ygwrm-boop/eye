@@ -148,6 +148,7 @@ export async function orchestrateCRMQuestion(
       return {
         ok: true,
         reply: result.reply,
+        proposedActionRequest: result.proposedActionRequest,
         providerUsed: provider.name,
         fallbacksUsed,
       }

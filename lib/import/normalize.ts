@@ -1,5 +1,6 @@
 import type { SourceFacts, NormalizedRow } from "./types"
 import type { CanonicalFieldKey } from "./headers"
+import { sanitizeStatus } from "./validation"
 
 /**
  * Trims and collapses multiple spaces. Returns null if blank or empty.
@@ -104,8 +105,33 @@ export function normalizeRawRecord(
   const rawAddress = cleanString(extracted.address)
   const rawZone = cleanString(extracted.zone)
   const rawBusinessType = cleanString(extracted.business_type)
+  const rawContactPerson = cleanString(extracted.contact_person)
+  const rawStatus = cleanString(extracted.status)
+  const rawOrderValue = cleanString(extracted.order_value)
+  const rawDeclineReason = cleanString(extracted.decline_reason)
+  const rawLat = cleanString(extracted.lat)
+  const rawLng = cleanString(extracted.lng)
+  const warnings: string[] = []
 
-  const coords = extractCoordsFromUrl(rawMapsUrl)
+  let coords = extractCoordsFromUrl(rawMapsUrl)
+  if (rawLat !== null || rawLng !== null) {
+    const lat = rawLat !== null && /^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(rawLat) ? Number(rawLat) : NaN
+    const lng = rawLng !== null && /^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(rawLng) ? Number(rawLng) : NaN
+    if (rawLat === null || rawLng === null || !isValidCoord(lat, lng)) {
+      warnings.push("Koordinatat latitude/longitude mungojnë ose janë jashtë intervalit të vlefshëm.")
+      coords = { lat: null, lng: null }
+    } else {
+      coords = { lat, lng }
+    }
+  }
+
+  const status = sanitizeStatus(rawStatus)
+  if (rawStatus !== null && status === null) {
+    warnings.push(`Status i panjohur: ${rawStatus}. Rregulloni skedarin para importit.`)
+  }
+  if (rawOrderValue !== null && !/^[+-]?\d+(?:\.\d+)?$/.test(rawOrderValue)) {
+    warnings.push(`Vlera e porosisë nuk është numër dhjetor i vlefshëm: ${rawOrderValue}.`)
+  }
 
   const sourceFacts: SourceFacts = {
     business_name: cleanedName,
@@ -115,6 +141,12 @@ export function normalizeRawRecord(
     address: rawAddress,
     zone: rawZone,
     business_type: rawBusinessType,
+    lat: rawLat,
+    lng: rawLng,
+    contact_person: rawContactPerson,
+    status: rawStatus,
+    order_value: rawOrderValue,
+    decline_reason: rawDeclineReason,
   }
 
   const normalized: NormalizedRow = {
@@ -129,6 +161,11 @@ export function normalizeRawRecord(
     address: rawAddress,
     zone: rawZone,
     business_type: rawBusinessType,
+    contact_person: rawContactPerson,
+    status,
+    order_value: rawOrderValue,
+    decline_reason: rawDeclineReason,
+    warnings,
   }
 
   return { sourceFacts, normalized }

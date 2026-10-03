@@ -3,15 +3,22 @@
 import { calculateNextClientStatus, findDuplicateClient, orchestrateUpsertVisit, type LifecycleDbAdapter, type UpsertVisitResult } from '@/lib/lifecycle'
 
 import {
-  createContext, useCallback, useContext, useEffect, useRef, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore,
   type ReactNode,
 } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { deriveClientAttention } from '@/lib/actions/attention'
+import { subscribeActionInvalidation } from '@/lib/actions/realtime'
+import { applyVisitActionPlan, validateVisitActionPlan, type VisitActionPlan } from '@/lib/actions/visit'
+import { type SurfaceCommand } from '@/lib/actions/types'
+import { ActionStateStore } from '@/lib/actions/state'
+import { createActionHttpClient } from '@/lib/actions/http-client'
 import {
   normalize, nowISO, statusInfo, todayISO,
-  type Client, type Visit, type AIReminder,
+  type Client, type Visit,
 } from '@/lib/types'
-import { getFollowupState, type FollowupFilter } from '@/lib/followup'
+import { type FollowupFilter } from '@/lib/followup'
+import { isUnlocated } from '@/lib/location/group'
 import { enqueueVisitReminder } from '@/lib/ai/client-enqueue'
 import {
   type CurrentLocation,
@@ -32,22 +39,26 @@ type ToastState = { msg: string; kind: string; key: number }
 
 // ─── Context shape ────────────────────────────────────────────────────────────
 type AppCtx = {
+  operationalActions: ActionStateStore
+  actionState: ReturnType<ActionStateStore["snapshot"]>
+  actionAttention: (clientId: string) => ReturnType<typeof deriveClientAttention> | null
+  changeAction: (command: SurfaceCommand) => Promise<{ ok: boolean; error?: string }>
+  accountId: string | null
   // Data
   clients: Client[]
   visits: Visit[]
   visitsLoaded: boolean
+  visitsError: string | null
   loadVisits: () => Promise<void>
   updateClient: (id: string, patch: Partial<Client>) => Promise<{ ok: boolean; error?: Error }>
   upsertVisit: (
     payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
-    editingId?: string
+    editingId?: string,
+    actionPlan?: VisitActionPlan
   ) => Promise<UpsertVisitResult>
   deleteVisit: (id: string) => Promise<{ ok: boolean; error?: string }>
 
   // Next Actions & Reminders
-  reminders: AIReminder[]
-  remindersLoaded: boolean
-  loadReminders: () => Promise<void>
   todayVisitsCount: number
 
   // Filters
@@ -116,30 +127,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
   if (!supabaseRef.current) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
+  const [actionHttp] = useState(() => createActionHttpClient())
+  const [operationalActions] = useState(() => new ActionStateStore(actionHttp))
+
+  const actionState = useSyncExternalStore(operationalActions.subscribe, operationalActions.snapshot, operationalActions.snapshot)
+  const actionAttention = (clientId: string) => actionState.status === "loaded" ? deriveClientAttention(actionState.actions, clientId) : null
+
   const [clients, setClients] = useState<Client[]>([])
   const [visits, setVisits] = useState<Visit[]>([])
   const [visitsLoaded, setVisitsLoaded] = useState(false)
-  const [reminders, setReminders] = useState<AIReminder[]>([])
-  const [remindersLoaded, setRemindersLoaded] = useState(false)
+  const [visitsError, setVisitsError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState(false)
 
   // Authenticated user identity for tenant isolation
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const currentUserIdRef = useRef<string | null>(null)
+  const authKnownRef = useRef(false)
 
   useEffect(() => {
+    let authEventSeen = false
+    let cancelled = false
     supabase.auth.getUser().then(({ data }) => {
+      if (authEventSeen || cancelled) return
+      authKnownRef.current = true
+      if (!data.user) operationalActions.reset('unauthenticated')
+      currentUserIdRef.current = data.user?.id ?? null
       setCurrentUserId(data.user?.id ?? null)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUserId(session?.user?.id ?? null)
+      authEventSeen = true
+      authKnownRef.current = true
+      const owner = session?.user?.id ?? null
+      if (currentUserIdRef.current === owner) { if (!owner) operationalActions.reset('unauthenticated'); return }
+      operationalActions.reset(owner ? undefined : 'unauthenticated')
+      currentUserIdRef.current = owner
+      setCurrentUserId(owner)
     })
 
     return () => {
+      cancelled = true
       subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    operationalActions.reset(!currentUserId && authKnownRef.current ? 'unauthenticated' : undefined)
+    setClients([]); setVisits([]); setVisitsLoaded(false); setVisitsError(null); setActiveClient(null)
+    if (currentUserId) void operationalActions.load()
+    return () => operationalActions.reset()
+  }, [currentUserId, operationalActions])
 
   // ── Location state ────────────────────────────────────────────────────────
   const [currentLocation, setCurrentLocation] = useState<CurrentLocation | null>(null)
@@ -353,6 +391,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ── Load all clients (paginated) ──────────────────────────────────────────
   const loadClients = useCallback(async () => {
+    const ownerAtStart = currentUserIdRef.current
+    if (!ownerAtStart) return
     setSyncing(true)
     setSyncError(false)
     const all: Client[] = []
@@ -360,7 +400,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     while (true) {
       const { data, error } = await supabase
         .from('clients')
-        .select('*')
+        .select('*').eq('owner_user_id', ownerAtStart)
         .order('business_name')
         .range(from, from + 999)
       if (error) { setSyncError(true); setSyncing(false); return }
@@ -368,68 +408,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (data.length < 1000) break
       from += 1000
     }
+    if (currentUserIdRef.current !== ownerAtStart) return
     setClients(all)
     setSyncing(false)
   }, [])
 
   // ── Load visits (paginated, lazy) ────────────────────────────────────────
   const loadVisits = useCallback(async () => {
+    const ownerAtStart = currentUserIdRef.current
+    if (!ownerAtStart) return
     if (visitsLoaded) return
+    setVisitsError(null)
     setSyncing(true)
     const all: Visit[] = []
     let from = 0
     while (true) {
       const { data, error } = await supabase
         .from('visits')
-        .select('*')
+        .select('*').eq('owner_user_id', ownerAtStart)
         .order('visit_date', { ascending: false })
         .order('created_at', { ascending: true })
         .range(from, from + 999)
       if (error) {
-        console.warn('loadVisits failed (table may not exist):', error.message)
+        if (currentUserIdRef.current !== ownerAtStart) return
+        setVisitsError(error.message)
         setSyncing(false)
-        setVisitsLoaded(true)
         return
       }
       all.push(...(data as Visit[]))
       if (data.length < 1000) break
       from += 1000
     }
+    if (currentUserIdRef.current !== ownerAtStart) return
     setVisits(all)
     setVisitsLoaded(true)
     setSyncing(false)
   }, [visitsLoaded])
 
-  // ── Load reminders (strictly scoped to authenticated user) ────────────────
-  const loadReminders = useCallback(async () => {
-    setSyncing(true)
-    let query = supabase
-      .from('ai_reminders')
-      .select('*')
-      .eq('is_dismissed', false)
-      .order('due_date', { ascending: true, nullsFirst: false })
-
-    if (currentUserId) {
-      query = query.eq('owner_user_id', currentUserId)
+  const changeAction = useCallback(async (command: SurfaceCommand) => {
+    try {
+      const result = await operationalActions.mutate(command)
+      if (!('unchanged' in result)) toast('Veprimi u ruajt ✓', 'success')
+      return { ok: true }
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : 'Veprimi dështoi'
+      toast(error, 'error')
+      return { ok: false, error }
     }
-
-    const { data, error } = await query
-    if (error) {
-      console.warn('loadReminders failed (table may not exist or network):', error.message)
-      setSyncing(false)
-      setRemindersLoaded(true)
-      return
-    }
-    setReminders((data as AIReminder[]) ?? [])
-    setRemindersLoaded(true)
-    setSyncing(false)
-  }, [currentUserId])
-
+  }, [operationalActions, toast])
 
   // ── Update a client ────────────────────────────────────────────────────────
   const updateClient = useCallback(async (
     id: string, patch: Partial<Client>
   ): Promise<{ ok: boolean; error?: Error }> => {
+    if ('next_action' in patch || 'next_followup' in patch) return { ok: false, error: new Error('Use the shared action runtime for operational changes') }
     setSyncing(true)
     const { error } = await supabase
       .from('clients')
@@ -454,10 +486,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Upsert a visit (with client lifecycle integrity & verified rollbacks) ──
   const upsertVisit = useCallback(async (
     payload: Omit<Visit, "id" | "created_at" | "updated_at">,
-    editingId?: string
+    editingId?: string,
+    actionPlan: VisitActionPlan = { intent: 'leave' }
   ): Promise<UpsertVisitResult> => {
     if (upsertInProgressRef.current) {
       return { ok: false, kind: "failure", error: "Një veprim është në proces. Ju lutem prisni." }
+    }
+    try { validateVisitActionPlan(actionPlan, operationalActions.capabilities) } catch (cause) {
+      return { ok: false, kind: 'failure', error: cause instanceof Error ? cause.message : 'Unsupported visit action' }
     }
     upsertInProgressRef.current = true
     setSyncing(true)
@@ -465,6 +501,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       const ownerUserId = user?.id
+      if (!ownerUserId) return { ok: false, kind: 'failure', error: 'Authentication required' }
 
       const enrichedPayload = {
         ...payload,
@@ -528,6 +565,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setActiveClient(prev => prev?.id === clId ? { ...prev, status: result.newStatus!, updated_at: nowISO() } : prev)
         }
         setVisits(prev => editingId ? prev.map(v => v.id === editingId ? result.data : v) : [result.data, ...prev.filter(v => v.id !== result.data.id)])
+        try {
+          await applyVisitActionPlan(operationalActions, actionPlan, result.data.id, result.data.client_id!)
+          await operationalActions.refresh()
+        } catch (cause) {
+          return { ok: false, kind: 'partial', visit: result.data, client: result.client, message: 'Vizita u ruajt; ndryshimi i veprimit dështoi.', error: cause instanceof Error ? cause.message : 'Action failed' } as UpsertVisitResult
+        }
         toast(result.client ? "Vizita dhe klienti i ri u ruajtën ✓" : "Vizita u ruajt ✓", "success")
 
         // Observable, resilient AI reminder extraction (visit persistence is already complete and primary)
@@ -562,7 +605,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertInProgressRef.current = false
       setSyncing(false)
     }
-  }, [clients, toast])
+  }, [clients, toast, operationalActions])
 
   // ── Delete a visit ────────────────────────────────────────────────────────
   const deleteVisit = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
@@ -608,12 +651,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (cs !== statusFilter.toLowerCase()) return false
     }
     if (followupFilter !== 'all') {
-      const fuState = getFollowupState(c.next_followup)
+      const attention = actionAttention(c.id)
+      if (!attention) return false
+      const fuState = attention.group === 'overdue' ? 'OVERDUE' : attention.group === 'today' ? 'DUE_TODAY' : attention.group === 'upcoming' ? 'UPCOMING' : 'NONE'
       if (followupFilter === 'overdue' && fuState !== 'OVERDUE') return false
       if (followupFilter === 'today' && fuState !== 'DUE_TODAY') return false
       if (followupFilter === 'upcoming' && fuState !== 'UPCOMING') return false
     }
-    if (unlocatedOnly && (c.lat != null || !c.maps_url)) return false
+    if (unlocatedOnly && !isUnlocated(c)) return false
     if (search) {
       if (!normalize(c.business_name).includes(normalize(search))) return false
     }
@@ -716,88 +761,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .subscribe()
 
 
-    const rch = supabase
-      .channel(`reminders-rt-${currentUserId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ai_reminders',
-          filter: `owner_user_id=eq.${currentUserId}`,
-        },
-        ({ new: row }) => {
-          const item = row as AIReminder
-          if (!item.is_dismissed) {
-            setReminders(prev => {
-              if (prev.some(r => r.id === item.id)) return prev
-              return [...prev, item].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
-            })
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'ai_reminders',
-          filter: `owner_user_id=eq.${currentUserId}`,
-        },
-        ({ new: row }) => {
-          const item = row as AIReminder
-          if (item.is_dismissed) {
-            setReminders(prev => prev.filter(r => r.id !== item.id))
-          } else {
-            setReminders(prev => {
-              const exists = prev.some(r => r.id === item.id)
-              if (exists) {
-                return prev.map(r => r.id === item.id ? item : r)
-              }
-              return [...prev, item].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
-            })
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'ai_reminders',
-          filter: `owner_user_id=eq.${currentUserId}`,
-        },
-        ({ old }) => {
-          setReminders(prev => prev.filter(r => r.id !== (old as AIReminder).id))
-        }
-      )
-      .subscribe()
-
     return () => {
       supabase.removeChannel(ch)
       supabase.removeChannel(vch)
-      supabase.removeChannel(rch)
     }
   }, [currentUserId])
 
+  // Operational subscriptions are isolated from the independent CRM/visit channels.
+  useEffect(() => {
+    if (!currentUserId) return
+    return subscribeActionInvalidation(supabase, currentUserId, actionHttp.capability, operationalActions.refresh)
+  }, [currentUserId, actionHttp, operationalActions, supabase])
+
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!currentUserId) return
     loadClients()
     loadVisits()
-    loadReminders()
-  }, [loadClients, loadVisits, loadReminders])
+  }, [currentUserId, loadClients, loadVisits])
 
   const todayVisitsCount = visits.filter(v => v.visit_date === todayISO()).length
 
   const value: AppCtx = {
-    clients, visits, visitsLoaded, loadVisits, updateClient, upsertVisit, deleteVisit,
+    operationalActions, actionState, actionAttention, changeAction, accountId: currentUserId,
+    clients, visits, visitsLoaded, visitsError, loadVisits, updateClient, upsertVisit, deleteVisit,
     search, setSearch, zoneFilter, setZoneFilter, statusFilter, setStatusFilter, followupFilter, setFollowupFilter,
     unlocatedOnly, setUnlocatedOnly, filteredClients, zones,
     activeClient, openPanel, closePanel,
     editingVisit, visitModalOpen, visitModalDate, openVisitModal, closeVisitModal,
     importModalOpen, openImportModal, closeImportModal, loadClients,
     syncing, syncError, toast, toastState,
-    reminders, remindersLoaded, loadReminders, todayVisitsCount,
+    todayVisitsCount,
     // Location
     currentLocation, locationStatus, locationError,
     enableLocation, refreshLocation,

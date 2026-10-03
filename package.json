@@ -5,12 +5,15 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/lifecycle.test.ts test/ai-operational.test.ts test/user-isolation.test.ts test/mobile-experience.test.ts test/location.test.ts test/import.test.ts",
+    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/lifecycle.test.ts test/ai-operational.test.ts test/user-isolation.test.ts test/mobile-experience.test.ts test/location.test.ts test/import.test.ts test/ai-actions.test.ts test/action-scheduling.test.mjs test/client-actions-db.test.mjs test/legacy-actions.test.mjs test/phase2b-backfill.test.mjs test/action-runtime.test.ts test/action-surfaces.test.ts test/phase4a-readiness.test.mjs test/phase4b-handover.test.ts test/phase11-operational.test.cjs",
+    "typecheck": "tsc --noEmit",
     "start": "next start",
     "ingest": "node ingest.js",
     "ingest:dry": "node ingest.js --dry-run",
     "geocode": "node geocode.js",
-    "geocode:dry": "node geocode.js --dry-run"
+    "geocode:dry": "node geocode.js --dry-run",
+    "migration:dry-run": "node scripts/legacy-actions-dry-run.mjs",
+    "migration:reconcile": "node scripts/reconcile-legacy-migrations.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.1",

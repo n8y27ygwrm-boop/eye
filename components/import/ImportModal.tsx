@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useRef, useState } from "react"
 import { useApp } from "@/contexts/AppContext"
 import type { ImportPreviewRow, ImportPreviewSummary, ClientImportCommitItem } from "@/lib/import/types"
 import ImportSourceStep from "./ImportSourceStep"
@@ -7,12 +7,23 @@ import ImportPreview from "./ImportPreview"
 export default function ImportModal() {
   const { closeImportModal, loadClients, toast } = useApp()
 
-  const [step, setStep] = useState<"source" | "preview">("source")
+  const [step, setStep] = useState<"source" | "preview" | "confirm">("source")
   const [summary, setSummary] = useState<ImportPreviewSummary | null>(null)
   const [rows, setRows] = useState<ImportPreviewRow[]>([])
+  const [headerMapping, setHeaderMapping] = useState<Record<string, string>>({})
+  const [ignoredHeaders, setIgnoredHeaders] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingClients, setPendingClients] = useState<ClientImportCommitItem[] | null>(null)
+  const commitInFlight = useRef(false)
+
+  const requestCommit = (clientsToCommit: ClientImportCommitItem[]) => {
+    if (isSubmitting || clientsToCommit.length === 0) return
+    setPendingClients(clientsToCommit)
+    setError(null)
+    setStep("confirm")
+  }
 
   // 1. Analyze Google Sheet
   const handleAnalyzeGoogleSheet = async (url: string) => {
@@ -33,6 +44,8 @@ export default function ImportModal() {
 
       setSummary(data.summary)
       setRows(data.rows)
+      setHeaderMapping(data.headerMapping || {})
+      setIgnoredHeaders(data.ignoredHeaders || [])
       setStep("preview")
     } catch (err: any) {
       setError(err.message || "Ndodhi një gabim i papritur.")
@@ -62,6 +75,8 @@ export default function ImportModal() {
 
       setSummary(data.summary)
       setRows(data.rows)
+      setHeaderMapping(data.headerMapping || {})
+      setIgnoredHeaders(data.ignoredHeaders || [])
       setStep("preview")
     } catch (err: any) {
       setError(err.message || "Ndodhi një gabim i papritur gjatë leximit.")
@@ -72,6 +87,8 @@ export default function ImportModal() {
 
   // 3. Commit clean clients to Supabase
   const handleCommit = async (clientsToCommit: ClientImportCommitItem[]) => {
+    if (commitInFlight.current || !pendingClients || clientsToCommit !== pendingClients || clientsToCommit.length === 0) return
+    commitInFlight.current = true
     setIsSubmitting(true)
     setError(null)
 
@@ -98,8 +115,13 @@ export default function ImportModal() {
     } catch (err: any) {
       setError(err.message || "Ndodhi një gabim gjatë ruajtjes.")
     } finally {
+      commitInFlight.current = false
       setIsSubmitting(false)
     }
+  }
+
+  const closeSafely = () => {
+    if (!commitInFlight.current) closeImportModal()
   }
 
   return (
@@ -111,7 +133,7 @@ export default function ImportModal() {
       aria-labelledby="import-modal-title"
     >
       {/* Mobile Handle Bar */}
-      <div className="modal-handle-bar" onClick={closeImportModal} aria-label="Mbyll dritaren">
+      <div className="modal-handle-bar" onClick={closeSafely} aria-label="Mbyll dritaren">
         <span className="modal-handle-pill" />
       </div>
 
@@ -120,13 +142,14 @@ export default function ImportModal() {
         <div className="modal-header-left">
           <span className="imp-title-tag">IMPORT INBOX</span>
           <h2 id="import-modal-title">
-            {step === "source" ? "Importo të dhëna klientësh" : "Shqyrtimi para importit"}
+            {step === "source" ? "Importo të dhëna klientësh" : step === "confirm" ? "Konfirmo importin" : "Shqyrtimi para importit"}
           </h2>
         </div>
         <button
           type="button"
           className="modal-close"
-          onClick={closeImportModal}
+          onClick={closeSafely}
+          disabled={isSubmitting}
           aria-label="Mbyll"
         >
           ✕
@@ -142,12 +165,37 @@ export default function ImportModal() {
             isLoading={isLoading}
             error={error}
           />
+        ) : step === "confirm" && pendingClients ? (
+          <div className="imp-confirm" onKeyDownCapture={event => {
+            if (event.key === "Enter") event.preventDefault()
+          }}>
+            <div className="imp-confirm-content">
+              <span className="imp-title-tag">KONFIRMIMI FINAL</span>
+              <h3>Importoni {pendingClients.length} {pendingClients.length === 1 ? "klient" : "klientë"}?</h3>
+              <p>Ky veprim shkruan <strong>{pendingClients.length} {pendingClients.length === 1 ? "klient" : "klientë"}</strong> në databazën e klientëve të EYE.</p>
+              <p>Kontrolloni numrin dhe të dhënat në shqyrtim përpara konfirmimit.</p>
+              {error && <div className="imp-error-banner" role="alert">{error}</div>}
+            </div>
+            <div className="imp-confirm-actions">
+              <button type="button" className="imp-btn-back" onClick={() => {
+                setStep("preview")
+                setPendingClients(null)
+                setError(null)
+              }} disabled={isSubmitting}>← Kthehu te shqyrtimi</button>
+              <button type="button" className="imp-btn-back" onClick={closeSafely} disabled={isSubmitting}>Anulo</button>
+              <button type="button" className="imp-btn-commit" onClick={() => void handleCommit(pendingClients)} disabled={isSubmitting}>
+                {isSubmitting ? "Duke ruajtur në EYE…" : `Konfirmo importin e ${pendingClients.length} ${pendingClients.length === 1 ? "klienti" : "klientëve"}`}
+              </button>
+            </div>
+          </div>
         ) : summary ? (
           <ImportPreview
             summary={summary}
             rows={rows}
+            headerMapping={headerMapping}
+            ignoredHeaders={ignoredHeaders}
             onUpdateRows={setRows}
-            onCommit={handleCommit}
+            onRequestCommit={requestCommit}
             onBack={() => {
               setStep("source")
               setError(null)

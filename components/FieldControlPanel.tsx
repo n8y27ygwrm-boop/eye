@@ -6,7 +6,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useApp } from '@/contexts/AppContext'
-import { todayISO, type AIReminder } from '@/lib/types'
+import type { OperationalAction } from '@/lib/actions/types'
 import { formatFollowupDate } from '@/lib/followup'
 
 // ── Minimal Monochrome Hairline Icons (Savvy Systems) ──────────────────────────
@@ -73,8 +73,9 @@ function formatReminderTime(dueTime: string | null | undefined): string {
 function formatReminderSchedule(
   dueDate: string | null | undefined,
   dueTime: string | null | undefined,
-  category: 'OVERDUE' | 'TODAY' | 'UPCOMING'
+  category: 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'UNSCHEDULED'
 ): string {
+  if (category === 'UNSCHEDULED') return 'Pa afat'
   const timeStr = formatReminderTime(dueTime)
 
   if (category === 'TODAY') {
@@ -94,17 +95,18 @@ function formatReminderSchedule(
 
 export default function FieldControlPanel() {
   const pathname = usePathname()
-  const { clients, todayVisitsCount, reminders, openPanel } = useApp()
+  const { clients, todayVisitsCount, operationalActions, actionState, changeAction, openPanel } = useApp()
 
   // Desktop foldout state
   const [isExpanded, setIsExpanded] = useState(false)
   const [showAllInList, setShowAllInList] = useState(false)
+  const [dismissingReminderIds, setDismissingReminderIds] = useState<Set<string>>(new Set())
 
   // Mobile 3-state bottom sheet: 'collapsed' | 'half' | 'full'
   const [mobileSheetState, setMobileSheetState] = useState<'collapsed' | 'half' | 'full'>('collapsed')
   const touchStartY = useRef<number | null>(null)
 
-  const today = todayISO()
+
 
   // Close desktop on Escape key press
   useEffect(() => {
@@ -124,71 +126,67 @@ export default function FieldControlPanel() {
     setMobileSheetState('collapsed')
   }, [pathname])
 
-  // Prioritized categorization: 1. OVERDUE, 2. TODAY, 3. UPCOMING
   const categorized = useMemo(() => {
-    const overdue: AIReminder[] = []
-    const dueToday: AIReminder[] = []
-    const upcoming: AIReminder[] = []
-
-    for (const r of reminders) {
-      if (!r.due_date) {
-        upcoming.push(r)
-      } else if (r.due_date < today) {
-        overdue.push(r)
-      } else if (r.due_date === today) {
-        dueToday.push(r)
-      } else {
-        upcoming.push(r)
-      }
-    }
-
-    return { overdue, dueToday, upcoming }
-  }, [reminders, today])
-
-  const totalActiveActions = reminders.length
+    const groups = operationalActions.groups()
+    return { overdue: groups?.overdue ?? [], dueToday: groups?.today ?? [], upcoming: groups?.upcoming ?? [], unscheduled: groups?.unscheduled ?? [] }
+  }, [operationalActions, actionState])
+  const totalActiveActions = actionState.status === 'loaded' ? actionState.actions.length : 0
   const hasOverdue = categorized.overdue.length > 0
-
-  // 3-5 prioritized operational items for compressed display
   const prioritizedItems = useMemo(() => {
-    if (showAllInList) {
-      return {
-        overdue: categorized.overdue,
-        dueToday: categorized.dueToday,
-        upcoming: categorized.upcoming,
-        totalShown: totalActiveActions,
-      }
-    }
+    let remaining = showAllInList ? Infinity : 5
+    const take = (items: OperationalAction[]) => { const result = items.slice(0, remaining); remaining -= result.length; return result }
+    const overdue = take(categorized.overdue), dueToday = take(categorized.dueToday), upcoming = take(categorized.upcoming), unscheduled = take(categorized.unscheduled)
+    return { overdue, dueToday, upcoming, unscheduled, totalShown: overdue.length + dueToday.length + upcoming.length + unscheduled.length }
+  }, [categorized, showAllInList])
 
-    const maxItems = 5
-    let remaining = maxItems
-
-    const pOverdue = categorized.overdue.slice(0, remaining)
-    remaining = Math.max(0, remaining - pOverdue.length)
-
-    const pToday = categorized.dueToday.slice(0, remaining)
-    remaining = Math.max(0, remaining - pToday.length)
-
-    const pUpcoming = categorized.upcoming.slice(0, remaining)
-
-    const totalShown = pOverdue.length + pToday.length + pUpcoming.length
-
-    return {
-      overdue: pOverdue,
-      dueToday: pToday,
-      upcoming: pUpcoming,
-      totalShown,
-    }
-  }, [categorized, showAllInList, totalActiveActions])
+  const mobilePreview = useMemo(() => {
+    let remaining = 3
+    const take = (items: OperationalAction[]) => { const result = items.slice(0, remaining); remaining -= result.length; return result }
+    const overdue = take(categorized.overdue), dueToday = take(categorized.dueToday), upcoming = take(categorized.upcoming), unscheduled = take(categorized.unscheduled)
+    return { overdue, dueToday, upcoming, unscheduled, totalShown: 3 - remaining }
+  }, [categorized])
 
   const hasMoreActions = totalActiveActions > prioritizedItems.totalShown
 
-  const handleReminderClick = (reminder: AIReminder) => {
+  const handleReminderClick = (reminder: OperationalAction) => {
     if (reminder.client_id) {
       // Ensure bottom sheet collapses so detail sheet takes precedence
       setMobileSheetState('collapsed')
       openPanel(reminder.client_id)
     }
   }
+
+  const handleReminderDone = async (event: React.MouseEvent<HTMLButtonElement>, reminder: OperationalAction) => {
+    event.stopPropagation()
+    if (dismissingReminderIds.has(reminder.id)) return
+    setDismissingReminderIds(previous => new Set(previous).add(reminder.id))
+    try {
+      await changeAction({ operation: 'surface', intent: 'complete', requestId: crypto.randomUUID(), channel: 'field_control', clientId: reminder.client_id, actionId: reminder.id, expectedVersion: reminder.version, expectedRevision: reminder.revision })
+    } finally {
+      setDismissingReminderIds(previous => {
+        const next = new Set(previous)
+        next.delete(reminder.id)
+        return next
+      })
+    }
+  }
+
+  const renderReminderSide = (reminder: OperationalAction, category: 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'UNSCHEDULED') => (
+    <div className="fc-action-side">
+      <div className={'fc-action-time' + (category === 'OVERDUE' ? ' fc-time-overdue' : '')}>
+        {formatReminderSchedule(reminder.due_date, reminder.due_time, category)}
+      </div>
+      <button
+        type="button"
+        className="fc-action-done"
+        disabled={dismissingReminderIds.has(reminder.id) || !reminder.allowed_operations?.includes('complete')}
+        onClick={event => handleReminderDone(event, reminder)}
+        aria-label={`Shëno si të kryer: ${reminder.client_name_snapshot || 'veprimi'}`}
+      >
+        {dismissingReminderIds.has(reminder.id) ? '…' : '✓ Kryer'}
+      </button>
+    </div>
+  )
 
   const activeWorkspaceName =
     pathname === EYE_ROUTES.ROUTE ? 'Visits' : pathname === EYE_ROUTES.CLIENTS ? 'Clients' : 'Map'
@@ -234,118 +232,25 @@ export default function FieldControlPanel() {
 
   // ── Render Actions Content ───────────────────────────────────────────────────
   const renderNextActionsList = (itemsToRender = prioritizedItems) => {
-    if (totalActiveActions === 0) {
-      return (
-        <div className="fc-empty-actions">
-          Nuk ka veprime aktive në pritje
-        </div>
-      )
-    }
-
-    return (
-      <div className="fc-actions-scroll">
-        {itemsToRender.overdue.length > 0 && (
-          <div className="fc-group">
-            <div className="fc-group-title fc-group-overdue">
-              <span className="fc-crimson-dot" />
-              ME VONESË ({categorized.overdue.length})
-            </div>
-            {itemsToRender.overdue.map(r => (
-              <div
-                key={r.id}
-                className="fc-action-item fc-action-item--overdue"
-                onClick={() => handleReminderClick(r)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="fc-action-main">
-                  <div className="fc-action-header-row">
-                    <span className="fc-action-pip fc-pip-overdue" title="Me vonesë" />
-                    <div className="fc-action-name">{r.business_name || 'Klient pa emër'}</div>
-                  </div>
-                  {r.description && <div className="fc-action-desc">{r.description}</div>}
-                </div>
-                <div className="fc-action-time fc-time-overdue">
-                  {formatReminderSchedule(r.due_date, r.due_time, 'OVERDUE')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {itemsToRender.dueToday.length > 0 && (
-          <div className="fc-group">
-            <div className="fc-group-title fc-group-today">
-              <span className="fc-today-dot" />
-              SOT ({categorized.dueToday.length})
-            </div>
-            {itemsToRender.dueToday.map(r => (
-              <div
-                key={r.id}
-                className="fc-action-item fc-action-item--today"
-                onClick={() => handleReminderClick(r)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="fc-action-main">
-                  <div className="fc-action-header-row">
-                    <span className="fc-action-pip fc-pip-today" title="Sot" />
-                    <div className="fc-action-name">{r.business_name || 'Klient pa emër'}</div>
-                  </div>
-                  {r.description && <div className="fc-action-desc">{r.description}</div>}
-                </div>
-                <div className="fc-action-time">
-                  {formatReminderSchedule(r.due_date, r.due_time, 'TODAY')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {itemsToRender.upcoming.length > 0 && (
-          <div className="fc-group">
-            <div className="fc-group-title fc-group-upcoming">
-              <span className="fc-upcoming-dot" />
-              NË VIJIM ({categorized.upcoming.length})
-            </div>
-            {itemsToRender.upcoming.map(r => (
-              <div
-                key={r.id}
-                className="fc-action-item fc-action-item--upcoming"
-                onClick={() => handleReminderClick(r)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="fc-action-main">
-                  <div className="fc-action-header-row">
-                    <span className="fc-action-pip fc-pip-upcoming" title="Në vijim" />
-                    <div className="fc-action-name">{r.business_name || 'Klient pa emër'}</div>
-                  </div>
-                  {r.description && <div className="fc-action-desc">{r.description}</div>}
-                </div>
-                <div className="fc-action-time">
-                  {formatReminderSchedule(r.due_date, r.due_time, 'UPCOMING')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {hasMoreActions && !showAllInList && (
-          <button
-            type="button"
-            className="fc-more-btn"
-            onClick={e => {
-              e.stopPropagation()
-              setShowAllInList(true)
-            }}
-          >
-            <span>Shfaq të gjitha ({totalActiveActions})</span>
-            <span>▾</span>
-          </button>
-        )}
-      </div>
-    )
+    if (actionState.status === 'idle' || actionState.status === 'loading') return <div className="fc-empty-actions" role="status">Duke ngarkuar veprimet…</div>
+    if (actionState.status !== 'loaded') return <div className="fc-empty-actions" role="alert">{actionState.status === 'authentication_error' ? 'Identifikohu për veprimet.' : 'Veprimet nuk u ngarkuan.'} <button type="button" onClick={() => operationalActions.refresh()}>Provo përsëri</button></div>
+    if (totalActiveActions === 0) return <div className="fc-empty-actions">Nuk ka veprime aktive në pritje</div>
+    const sections = [
+      { key: 'overdue' as const, cls: 'overdue', label: 'ME VONESË', schedule: 'OVERDUE' as const },
+      { key: 'dueToday' as const, cls: 'today', label: 'SOT', schedule: 'TODAY' as const },
+      { key: 'upcoming' as const, cls: 'upcoming', label: 'NË VIJIM', schedule: 'UPCOMING' as const },
+      { key: 'unscheduled' as const, cls: 'upcoming', label: 'PA AFAT', schedule: 'UNSCHEDULED' as const },
+    ]
+    return <div className="fc-actions-scroll">
+      {sections.map(section => itemsToRender[section.key].length > 0 && <div className="fc-group" key={section.key}>
+        <div className={`fc-group-title fc-group-${section.cls}`}><span className={`fc-${section.cls}-dot`} />{section.label} ({categorized[section.key].length})</div>
+        {itemsToRender[section.key].map(r => <div key={r.id} className={`fc-action-item fc-action-item--${section.cls}`} onClick={() => handleReminderClick(r)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleReminderClick(r) }} role="button" tabIndex={0}>
+          <div className="fc-action-main"><div className="fc-action-header-row"><span className={`fc-action-pip fc-pip-${section.cls}`} /><div className="fc-action-name">{r.client_name_snapshot || 'Klient pa emër'}</div></div><div className="fc-action-desc">{r.description}</div></div>
+          {renderReminderSide(r, section.schedule)}
+        </div>)}
+      </div>)}
+      {hasMoreActions && !showAllInList && <button type="button" className="fc-more-btn" onClick={e => { e.stopPropagation(); setShowAllInList(true) }}><span>Shfaq të gjitha ({totalActiveActions})</span><span>▾</span></button>}
+    </div>
   }
 
   return (
@@ -619,12 +524,7 @@ export default function FieldControlPanel() {
 
               {mobileSheetState === 'half' ? (
                 <>
-                  {renderNextActionsList({
-                    overdue: categorized.overdue.slice(0, 3),
-                    dueToday: categorized.dueToday.slice(0, 2),
-                    upcoming: categorized.upcoming.slice(0, 1),
-                    totalShown: Math.min(3, totalActiveActions),
-                  })}
+                  {renderNextActionsList(mobilePreview)}
                   {totalActiveActions > 3 && (
                     <button
                       type="button"
@@ -642,6 +542,7 @@ export default function FieldControlPanel() {
                     overdue: categorized.overdue,
                     dueToday: categorized.dueToday,
                     upcoming: categorized.upcoming,
+                    unscheduled: categorized.unscheduled,
                     totalShown: totalActiveActions,
                   })}
                   <div className="fcm-full-footer">

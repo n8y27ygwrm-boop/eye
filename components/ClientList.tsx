@@ -2,10 +2,10 @@
 
 import { useApp } from '@/contexts/AppContext'
 import { statusInfo } from '@/lib/types'
-import { formatCardFollowupLabel } from '@/lib/followup'
+import { attentionBadge } from '@/lib/actions/attention'
 
 export default function ClientList() {
-  const { clients, filteredClients, openPanel, openImportModal } = useApp()
+  const { clients, filteredClients, openPanel, openImportModal, actionAttention, actionState } = useApp()
   const CAP = 500
 
   return (
@@ -36,6 +36,7 @@ export default function ClientList() {
         </div>
       </div>
 
+      {actionState.status !== 'loaded' && <div className="summary-bar" role={actionState.status === 'query_error' || actionState.status === 'authentication_error' ? 'alert' : 'status'}>{actionState.status === 'authentication_error' ? 'Identifikohu për veprimet.' : actionState.status === 'query_error' ? 'Veprimet nuk u ngarkuan.' : 'Duke ngarkuar veprimet…'}</div>}
       {filteredClients.length === 0 ? (
         <div className="empty">
           <div className="empty-icon">✕</div>
@@ -45,7 +46,8 @@ export default function ClientList() {
         <>
           {filteredClients.slice(0, CAP).map(c => {
             const info = statusInfo(c.status)
-            const fuBadge = formatCardFollowupLabel(c.next_followup)
+            const attention = actionAttention(c.id)
+            const fuBadge = attentionBadge(attention?.group ?? null, attention?.nearest?.due_date)
             const mapsHref = c.maps_url ?? (c.lat != null ? `https://maps.google.com/?q=${c.lat},${c.lng}` : null)
             return (
               <div key={c.id} className="card" onClick={() => openPanel(c.id)}>
@@ -56,7 +58,7 @@ export default function ClientList() {
                       {fuBadge && (
                         <span
                           className={`fu-badge ${fuBadge.cls}`}
-                          title={`Afati: ${c.next_followup}${c.next_action ? ` — ${c.next_action}` : ''}`}
+                          title={`${attention?.nearest?.due_date || 'Pa afat'} — ${attention?.nearest?.description || ''}`}
                         >
                           {fuBadge.label}
                         </span>

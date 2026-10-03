@@ -540,14 +540,17 @@ describe("EYE Import Inbox — V1 Hardened Regression Suite", () => {
     const authenticatedSessionOwner = "legitimate-auth-user-123"
     const validationResult = validateCommitRow(rawPayloadItem, authenticatedSessionOwner)
 
-    assert.equal(validationResult.valid, true)
-    if (validationResult.valid) {
+    assert.equal(validationResult.valid, false, "Unknown status must fail closed")
+
+    const allowedStatusResult = validateCommitRow({ ...rawPayloadItem, status: "prospect" }, authenticatedSessionOwner)
+    assert.equal(allowedStatusResult.valid, true)
+    if (allowedStatusResult.valid) {
       // 1. owner_user_id strictly overridden by session
-      assert.equal(validationResult.row.owner_user_id, authenticatedSessionOwner)
-      assert.notEqual(validationResult.row.owner_user_id, "attacker-user-id")
+      assert.equal(allowedStatusResult.row.owner_user_id, authenticatedSessionOwner)
+      assert.notEqual(allowedStatusResult.row.owner_user_id, "attacker-user-id")
 
       // 2. Status sanitized against allowed project statuses
-      assert.equal(validationResult.row.status, "prospect")
+      assert.equal(allowedStatusResult.row.status, "prospect")
     }
 
     // 3. Allowed statuses are correctly preserved
@@ -555,8 +558,8 @@ describe("EYE Import Inbox — V1 Hardened Regression Suite", () => {
     assert.equal(sanitizeStatus("App downloaded"), "App downloaded")
     assert.equal(sanitizeStatus("catalog sent"), "Catalog sent")
     assert.equal(sanitizeStatus("Customer/Purchase"), "Customer/Purchase")
-    assert.equal(sanitizeStatus("visited"), "prospect", "visited is not a client status and must map to prospect")
-    assert.equal(sanitizeStatus("INVALID_STATUS"), "prospect")
+    assert.equal(sanitizeStatus("visited"), null, "visited is not a client status")
+    assert.equal(sanitizeStatus("INVALID_STATUS"), null)
   })
 
   // ── TEST R: AI malformed output & outage isolation ───────────────────────
@@ -612,31 +615,31 @@ describe("EYE Import Inbox — V1 Hardened Regression Suite", () => {
   // ── TEST T: UI Components Architecture & Zero Emoji Verification ─────────
   test("T. UI Components Architecture & Zero Emoji Verification", () => {
     // 1. AppContext exports import modal state & reload
-    const appCtx = fs.readFileSync("/Users/redjonhalilaj/Downloads/eye/contexts/AppContext.tsx", "utf8")
+    const appCtx = fs.readFileSync("contexts/AppContext.tsx", "utf8")
     assert.match(appCtx, /importModalOpen/, "AppContext must export importModalOpen")
     assert.match(appCtx, /openImportModal/, "AppContext must export openImportModal")
     assert.match(appCtx, /closeImportModal/, "AppContext must export closeImportModal")
     assert.match(appCtx, /loadClients/, "AppContext must export loadClients")
 
     // 2. ClientList renders IMPORT DATA action
-    const clientList = fs.readFileSync("/Users/redjonhalilaj/Downloads/eye/components/ClientList.tsx", "utf8")
+    const clientList = fs.readFileSync("components/ClientList.tsx", "utf8")
     assert.match(clientList, /btn-import-clients/, "ClientList must render btn-import-clients")
     assert.match(clientList, /IMPORT DATA/, "ClientList must display IMPORT DATA text")
     assert.match(clientList, /openImportModal/, "ClientList button must call openImportModal")
 
     // 3. Shell mounts ImportModal inside modal-overlay-center
-    const shell = fs.readFileSync("/Users/redjonhalilaj/Downloads/eye/app/(main)/shell.tsx", "utf8")
+    const shell = fs.readFileSync("app/(main)/shell.tsx", "utf8")
     assert.match(shell, /import-modal-overlay/, "shell must mount import-modal-overlay")
     assert.match(shell, /<ImportModal/, "shell must render ImportModal")
 
     // 4. ImportRowCard: Zero emoji check
-    const rowCard = fs.readFileSync("/Users/redjonhalilaj/Downloads/eye/components/import/ImportRowCard.tsx", "utf8")
+    const rowCard = fs.readFileSync("components/import/ImportRowCard.tsx", "utf8")
     assert.equal(rowCard.includes("📍"), false, "ImportRowCard must NOT contain pin emoji")
     assert.equal(rowCard.includes("🏷️"), false, "ImportRowCard must NOT contain tag emoji")
     assert.equal(rowCard.includes("⚡"), false, "ImportRowCard must NOT contain lightning emoji")
 
     // 5. CSS uses Savvy Systems tokens and mobile bottom sheet rules
-    const css = fs.readFileSync("/Users/redjonhalilaj/Downloads/eye/app/globals.css", "utf8")
+    const css = fs.readFileSync("app/globals.css", "utf8")
     assert.match(css, /btn-import-clients/, "globals.css must style btn-import-clients")
     assert.match(css, /import-modal-card/, "globals.css must style import-modal-card")
     assert.match(css, /max-height:\s*94dvh/, "globals.css must use 94dvh on mobile")

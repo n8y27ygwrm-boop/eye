@@ -24,21 +24,21 @@ export const FOLLOWUP_STATE_DEFS: Record<FollowupState, FollowupStateInfo> = {
   OVERDUE: {
     state: 'OVERDUE',
     label: 'Me vonesë',
-    badgeText: 'OVERDUE',
+    badgeText: 'ME VONESË',
     cls: 'fu-overdue',
     color: '#EF4444',
   },
   DUE_TODAY: {
     state: 'DUE_TODAY',
     label: 'Sot',
-    badgeText: 'DUE TODAY',
+    badgeText: 'SOT',
     cls: 'fu-today',
     color: '#3B82F6',
   },
   UPCOMING: {
     state: 'UPCOMING',
     label: 'Në vijim',
-    badgeText: 'UPCOMING',
+    badgeText: 'NË VIJIM',
     cls: 'fu-upcoming',
     color: '#10B981',
   },
@@ -104,6 +104,25 @@ export function formatFollowupDate(
   return `${day} ${monthName}`
 }
 
+export function formatFollowupDateTime(
+  dateStr: string | null | undefined,
+  timeStr: string | null | undefined,
+  options?: { withYear?: boolean }
+): string {
+  const date = formatFollowupDate(dateStr, options)
+  if (!date) return 'Pa afat'
+  return timeStr ? `${date} · ${timeStr.trim().slice(0, 5)}` : date
+}
+
+export function formatHistoryDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return formatFollowupDate(dateStr, { withYear: true })
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return dateStr
+  const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return formatFollowupDate(localDate, { withYear: true })
+}
+
 /**
  * Generates restrained badge text for client list cards.
  * Priority: OVERDUE, DUE TODAY, UPCOMING, NONE
@@ -120,9 +139,9 @@ export function formatCardFollowupLabel(
 
   switch (state) {
     case 'OVERDUE':
-      return { label: 'OVERDUE', state, cls: 'fu-overdue' }
+      return { label: 'ME VONESË', state, cls: 'fu-overdue' }
     case 'DUE_TODAY':
-      return { label: 'TODAY', state, cls: 'fu-today' }
+      return { label: 'SOT', state, cls: 'fu-today' }
     case 'UPCOMING':
       return { label: shortDate.toUpperCase(), state, cls: 'fu-upcoming' }
     default:

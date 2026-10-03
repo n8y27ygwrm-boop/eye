@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminClient } from '@/lib/supabase/server'
+import { assertDigestAvailable } from '@/lib/actions/background-policy'
+import { readDigestActions } from '@/lib/actions/digest-source'
+import { assertOperationalWritesEnabled } from '@/lib/config/write-maintenance'
 
 // Called by Vercel Cron every evening at 20:00 Albania time (18:00 UTC)
 // Also callable manually: POST /api/daily-digest with Authorization: Bearer CRON_SECRET
@@ -79,6 +82,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  try { assertOperationalWritesEnabled() } catch { return NextResponse.json({ error: 'Operational maintenance' }, { status: 503 }) }
+
+  try { assertDigestAvailable() } catch {
+    return NextResponse.json({ ok: false, error: 'canonical_digest_unavailable', nonCore: true }, { status: 503 })
+  }
+
   const today = new Date().toISOString().slice(0, 10)
   // Private V1 Constraint: Digest is strictly scoped to the verified primary owner
   const targetOwnerId = (process.env.DAILY_DIGEST_OWNER_ID || 'a1026b88-6a25-4548-a055-cf12ea436bf8').trim()
@@ -110,19 +119,9 @@ export async function POST(req: NextRequest) {
 
   // 2. Query persisted ai_reminders for today's visits (single source of truth) scoped to target owner
   const visitIds = visits.map(v => v.id)
-  const { data: remindersData, error: remindersError } = await sb
-    .from('ai_reminders')
-    .select('id, business_name, action_type, description, due_date, due_time, priority')
-    .in('visit_id', visitIds)
-    .eq('owner_user_id', targetOwnerId)
-    .eq('is_dismissed', false)
-
-  if (remindersError) {
-    console.error('[daily-digest] Supabase error fetching reminders:', remindersError.message)
-    return NextResponse.json({ error: remindersError.message }, { status: 500 })
-  }
-
-  const reminders = (remindersData ?? []) as PersistedReminder[]
+  let reminders: PersistedReminder[]
+  try { reminders = await readDigestActions(targetOwnerId, visitIds, sb) as PersistedReminder[] }
+  catch { return NextResponse.json({ error: 'Digest action source unavailable; retry after authorization/configuration review' }, { status: 503 }) }
 
   if (reminders.length === 0) {
     const visitsWithNotes = visits.filter(v => v.shenime && v.shenime.trim())
@@ -168,6 +167,9 @@ export async function GET(req: NextRequest) {
   const secret = (process.env.CRON_SECRET ?? '').trim()
   if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try { assertDigestAvailable() } catch {
+    return NextResponse.json({ ok: false, error: 'canonical_digest_unavailable', nonCore: true }, { status: 503 })
   }
   return NextResponse.json({ ok: true, message: 'Daily digest endpoint is alive' })
 }

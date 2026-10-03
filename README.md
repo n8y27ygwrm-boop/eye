@@ -1,76 +1,29 @@
-# Tereni — Magazina Virtuale Field Sales CRM
+# EYE
 
-CRM mobile-first për punën në terren në Tiranë. Backend: Supabase. Frontend: një file i vetëm HTML pa build step.
+This local repository contains the verified candidate source of record for EYE. The application baseline was recovered from the exact Phase 11 production deployment source; historical application files were not copied over it. GitHub `main` remains historical until this recovery branch is published and merged, so it must not be used as a production source yet.
 
-## Files
+## Development and verification
 
-- `mv-crm.html` — frontend, hapet direkt në browser ose servohet si static
-- `ingest.js` — Node script për të ngarkuar prospekte nga CSV në Supabase
-- `bizneset_te_plota.csv` — lista e bizneseve nga PDF e terenit (~292 rresht)
-- `package.json` — varësitë për `ingest.js`
-- `.env.example` — formati i `.env` (kopjo në `.env` dhe plotëso çelësat)
-
-## Frontend
-
-`mv-crm.html` përdor:
-- Supabase JS via CDN (anon key inline)
-- Leaflet + OpenStreetMap (dark theme via CartoDB)
-- Inter font nga Google Fonts
-
-Hape lokalisht me një static server:
+Use Node 24.21.0 (`.node-version`) and npm 11.9.0. The Vercel project is configured for Node 24.x. The complete test suite starts disposable, socket-only local PostgreSQL instances for database boundary tests; PostgreSQL server tools (`initdb`, `pg_ctl`, `psql`) must be on `PATH`.
 
 ```sh
-python3 -m http.server 8765
-# pastaj hap http://localhost:8765/mv-crm.html
+npm ci
+npm run typecheck
+npm test
+npm run build
+git diff --check
 ```
 
-Ose hidhe drag-and-drop në Vercel / Netlify Drop për akses publik.
+Do not point tests at production. The test suite uses fixtures and temporary local databases. CI runs the same checks on pull requests and pushes to `main`.
 
-### Pamjet
-- **Harta** — pinë me ngjyrë sipas statusit, vetëm bizneset me `lat+lng`
-- **Lista** — të gjitha bizneset; ikona 📍 hap `maps_url`
-- **Side panel** — detajet e plota me fusha të editueshme (status, telefon, kontakti, shënime, ndjekje, vlera)
+## Release rule
 
-### Statuset
-- `prospect` (Prospekt) — gri
-- `active` (Aktiv) — jeshil
-- `inactive` (Joaktiv) — kuq
-- `lead` (Lead) — blu
-- `declined` (Refuzuar) — portokalli
+After the recovery branch is published and merged, deploy production only from a clean, reviewed revision of the authoritative GitHub `main` branch. Before deployment, record the full Git commit SHA and confirm the working tree is clean. After deployment, record the Vercel deployment ID and the exact source revision used in the release log. Confirm the production alias points to that deployment. Do not use a separate local source folder as a release source.
 
-Statuset e vjetra (`No contact`, `App downloaded`, etj.) shfaqen po ashtu për të dhënat ekzistuese.
+The current deployed Phase 11 release predates this rule:
 
-## Ingest
+| Production alias | Deployment ID | Application source revision | Source method |
+| --- | --- | --- | --- |
+| `eye-savvyedge.vercel.app` | `dpl_8JhPYjokk9JALrG1Jr1rnSqZo5hD` | `d15bc8a` (application tree; `eba23b9` added a test only) | Vercel CLI source upload |
 
-```sh
-npm install
-cp .env.example .env
-# plotëso .env me SUPABASE_URL dhe SUPABASE_SERVICE_KEY
-
-node ingest.js --dry-run   # preview pa shkruar
-node ingest.js             # shkruaj në Supabase
-```
-
-Logjika:
-1. Lexon `bizneset_te_plota.csv`
-2. Heq duplikatet (case-insensitive vs DB)
-3. Heq rreshtat pa adresë
-4. Insertion në batch të 100, çdo prospekt me `status='prospect'`, `zone='Z4'`, `source='field_pdf_import'`
-
-## Skema e tabelës `clients`
-
-```
-id (uuid) | business_name | status | business_type | zone | address
-lat | lng | phone | contact_person | general_notes | next_followup
-decline_reason | order_value | source | maps_url | created_at | updated_at
-```
-
-## Workflow tipik
-
-1. `node ingest.js` — ngarko bizneset e reja nga CSV
-2. Hap `mv-crm.html` në telefon
-3. Për çdo prospekt, kliko 📍 në kartë → hap Google Maps, gjej pinin e duhur
-4. Kopjo `lat,lng` nga URL e Maps
-5. Hap kartën në app → ngjit koordinatat në side panel → ruaj
-6. Biznesi shfaqet automatikisht në hartë
-
+The Phase 12 repository recovery does not deploy or change production. See [recovery notes](docs/phase12-recovery.md) for provenance and test classification.

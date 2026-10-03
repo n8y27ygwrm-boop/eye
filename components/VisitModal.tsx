@@ -17,7 +17,7 @@ export default function VisitModal() {
     clients, visits,
     visitModalOpen, visitModalDate, editingVisit,
     closeVisitModal, upsertVisit, deleteVisit,
-    activeClient,
+    activeClient, actionAttention, actionState,
     currentLocation,
     locationStatus,
     refreshLocation,
@@ -166,7 +166,7 @@ export default function VisitModal() {
       statusi,
       shenime: shenime || null,
     }
-    const res = await upsertVisit(payload, editingVisit?.id)
+    const res = await upsertVisit(payload, editingVisit?.id, { intent: 'leave' })
     setSaving(false)
     const outcome = evaluateModalSaveResult(res)
     if (outcome.action === 'close_modal') {
@@ -216,6 +216,7 @@ export default function VisitModal() {
             {error}
           </div>
         )}
+        {clientId && <div className="modal-field"><label>Veprimet e hapura</label>{actionState.status === 'loaded' ? <div>{actionAttention(clientId)?.open.map(a => <div key={a.id}>{a.description} · {a.due_date || 'Pa afat'}</div>)}<div style={{ color: 'var(--text-3)' }}>Ruajtja e vizitës i lë veprimet ekzistuese të pandryshuara.</div></div> : <div role="status">{actionState.status === 'query_error' || actionState.status === 'authentication_error' ? 'Veprimet nuk u ngarkuan.' : 'Duke ngarkuar veprimet…'}</div>}</div>}
         {/* Date */}
         <div className="modal-field">
           <label>Data</label>

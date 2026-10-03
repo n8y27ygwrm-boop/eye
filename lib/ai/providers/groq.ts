@@ -2,6 +2,7 @@ import type { AIProvider, VisitExtractionInput, VisitAIExtraction, CRMQuestionIn
 import { EXTRACTION_SYSTEM_PROMPT, formatVisitExtractionUserPrompt, formatCRMQuestionSystemPrompt } from "../prompts"
 import { REMINDER_STRICT_JSON_SCHEMA, validateAndNormalizeExtraction } from "../schema"
 import { classifyError } from "../errors"
+import { CRM_ACTION_TOOLS, parseCRMActionToolCall } from "../actions/tools"
 
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 export const DEFAULT_BACKGROUND_MODEL = "openai/gpt-oss-20b"
@@ -123,6 +124,9 @@ export class GroqProvider implements AIProvider {
         body: JSON.stringify({
           model: this.chatModel,
           messages,
+          tools: CRM_ACTION_TOOLS,
+          tool_choice: "auto",
+          parallel_tool_calls: false,
           temperature: 0.7,
           max_tokens: 1024,
         }),
@@ -136,8 +140,16 @@ export class GroqProvider implements AIProvider {
       }
 
       const json = await res.json()
-      const reply = json?.choices?.[0]?.message?.content ?? "Nuk munda të gjeneroj përgjigje."
-      return { reply }
+      const message = json?.choices?.[0]?.message
+      const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : []
+      const proposedActionRequest = toolCalls
+        .map(parseCRMActionToolCall)
+        .find(Boolean) ?? undefined
+      const reply = typeof message?.content === "string" ? message.content : ""
+      if (!reply && !proposedActionRequest) {
+        throw classifyError(new Error("Groq returned empty content and no valid tool call"), this.name)
+      }
+      return { reply, ...(proposedActionRequest ? { proposedActionRequest } : {}) }
     } catch (err) {
       throw classifyError(err, this.name)
     } finally {

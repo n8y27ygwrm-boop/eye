@@ -1,4 +1,6 @@
+
 import type { ProviderErrorCategory } from './errors'
+import type { CRMActionProposalRequest } from './actions/types'
 
 export type ActionType = 'call' | 'meeting' | 'deliver' | 'follow_up'
 export type ReminderPriority = 'high' | 'medium' | 'low'
@@ -26,20 +28,9 @@ export type VisitAIExtraction = {
   summary: string | null
 }
 
-export type ChatMessage = {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-export type CRMQuestionInput = {
-  message: string
-  conversationHistory: ChatMessage[]
-  crmContext: string
-}
-
-export type CRMAnswerOutput = {
-  reply: string
-}
+export type ChatMessage = { role: 'user' | 'assistant'; content: string }
+export type CRMQuestionInput = { message: string; conversationHistory: ChatMessage[]; crmContext: string }
+export type CRMAnswerOutput = { reply: string; proposedActionRequest?: CRMActionProposalRequest }
 
 export interface AIProvider {
   readonly name: 'groq' | 'openrouter' | 'gemini'
@@ -59,6 +50,7 @@ export type ExtractionExecutionResult = {
 export type ChatExecutionResult = {
   ok: boolean
   reply?: string
+  proposedActionRequest?: CRMActionProposalRequest
   providerUsed?: 'groq' | 'openrouter' | 'gemini'
   fallbacksUsed: number
   error?: string

@@ -8,6 +8,12 @@ export interface SourceFacts {
   address: string | null
   zone: string | null
   business_type: string | null
+  lat?: string | null
+  lng?: string | null
+  contact_person?: string | null
+  status?: string | null
+  order_value?: string | null
+  decline_reason?: string | null
 }
 
 export interface NormalizedRow {
@@ -22,6 +28,11 @@ export interface NormalizedRow {
   address: string | null
   zone: string | null
   business_type: string | null
+  contact_person?: string | null
+  status?: string | null
+  order_value?: string | null
+  decline_reason?: string | null
+  warnings?: string[]
 }
 
 export interface AIDerivedData {
@@ -85,6 +96,9 @@ export interface ClientImportCommitItem {
   address?: string | null
   zone?: string | null
   business_type?: string | null
+  contact_person?: string | null
+  order_value?: string | null
+  decline_reason?: string | null
   status?: string | null
   duplicateResolution?: "skip" | "import_new"
 }

@@ -1,34 +1,13 @@
-# Local secrets
-.env
-.env.local
-.env.*.local
-
-# Next.js
-.next/
-out/
-next-env.d.ts
-
-# Dependencies
-node_modules/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Editors
-.vscode/
-.idea/
-*.swp
-.vercel
-
-# Standalone HTML files (not part of the app)
-*.html
-
-# Tooling artifacts
-graphify-out/
 .env*
-
-# Local scratch & tooling
-.agents/
-scratch/
+!.env.example
+.next/
+.vercel/
+node_modules/
+out/
 *.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/
+*.swp
+graphify-out/
+scratch/

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Use npm 11.9.0
+        run: npm install --global npm@11.9.0
+      - name: Install PostgreSQL 15 test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y postgresql-15 postgresql-client-15
+          echo "/usr/lib/postgresql/15/bin" >> "$GITHUB_PATH"
+      - name: Verify PostgreSQL test binaries
+        run: |
+          test "$(command -v initdb)" = "/usr/lib/postgresql/15/bin/initdb"
+          test "$(command -v pg_ctl)" = "/usr/lib/postgresql/15/bin/pg_ctl"
+          test "$(command -v psql)" = "/usr/lib/postgresql/15/bin/psql"
+          initdb --version
+          pg_ctl --version
+          psql --version
+          initdb --version | grep -q 'PostgreSQL) 15\.'
+          pg_ctl --version | grep -q 'PostgreSQL) 15\.'
+          psql --version | grep -q 'PostgreSQL) 15\.'
+      - name: Clean dependency install
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Production build
+        run: npm run build

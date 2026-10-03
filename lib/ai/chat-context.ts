@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalize, getTiranaDate } from '../types'
 import { resolveVisitQueryIntent, type VisitQueryIntent } from './visit-intent'
+import { ActionError } from '../actions/errors'
+import type { ActionService } from '../actions/types'
 import type { ChatMessage } from './types'
 
 export type CompactCRMContext = {
@@ -54,7 +56,8 @@ export async function buildCompactCRMContext(
   userMessage: string,
   today: string = getTiranaDate(),
   ownerUserId?: string,
-  conversationHistory: ChatMessage[] = []
+  conversationHistory: ChatMessage[] = [],
+  canonicalActions?: ActionService
 ): Promise<CompactCRMContext> {
   // 1. Resolve visit query intent deterministically
   const intent = resolveVisitQueryIntent({
@@ -64,25 +67,26 @@ export async function buildCompactCRMContext(
   })
 
   // 2. Fetch overview data: clients, reminders, and total authoritative visit count (strictly owner-scoped)
-  let clientsQuery = sb.from('clients').select('id, business_name, status, zone, next_action, next_followup')
-  let remindersQuery = sb.from('ai_reminders').select('business_name, action_type, description, priority, due_date, due_time').eq('is_dismissed', false).limit(15)
+  let clientsQuery = sb.from('clients').select(canonicalActions ? 'id, business_name, status, zone' : 'id, business_name, status, zone, next_action, next_followup')
+  let remindersQuery = canonicalActions ? null : sb.from('ai_reminders').select('business_name, action_type, description, priority, due_date, due_time').eq('is_dismissed', false).limit(15)
   let totalVisitsQuery = sb.from('visits').select('id', { count: 'exact', head: true })
 
   if (ownerUserId) {
     clientsQuery = clientsQuery.eq('owner_user_id', ownerUserId)
-    remindersQuery = remindersQuery.eq('owner_user_id', ownerUserId)
+    if (remindersQuery) remindersQuery = remindersQuery.eq('owner_user_id', ownerUserId)
     totalVisitsQuery = totalVisitsQuery.eq('owner_user_id', ownerUserId)
   }
 
   // Execute initial queries in parallel to identify clients and counts
   const [clientsRes, remindersRes, totalVisitsRes] = await Promise.all([
     clientsQuery,
-    remindersQuery,
+    canonicalActions ? canonicalActions.listOpen().then(actions => ({ data: actions.map(a => ({ business_name: a.client_name_snapshot, action_type: a.action_type, description: a.description, priority: a.priority, due_date: a.due_date, due_time: a.due_time, client_id: a.client_id })), error: null })) : remindersQuery!,
     totalVisitsQuery,
   ])
 
-  const allClients = clientsRes.data ?? []
-  const reminders = remindersRes.data ?? []
+  if (clientsRes.error || remindersRes.error || totalVisitsRes.error || !Array.isArray(clientsRes.data) || !Array.isArray(remindersRes.data) || typeof totalVisitsRes.count !== 'number') throw new ActionError('database', 'CRM context query failed', 503)
+  const allClients = (clientsRes.data ?? []) as unknown as { id: string; business_name: string; status: string | null; zone: string | null; next_action?: string | null; next_followup?: string | null }[]
+  const reminders = (remindersRes.data ?? []) as { business_name: string; action_type: string; description: string; priority: string; due_date: string | null; due_time: string | null; client_id?: string | null }[]
   const totalVisitsCount =
     typeof totalVisitsRes.count === 'number'
       ? totalVisitsRes.count
@@ -175,6 +179,7 @@ export async function buildCompactCRMContext(
 
   // Execute visits query
   const visitsRes = await visitsQuery
+  if (visitsRes.error || !Array.isArray(visitsRes.data)) throw new ActionError('database', 'Visit context query failed', 503)
   const retrievedVisits = visitsRes.data ?? []
 
   // Aggregate pipeline status distribution
@@ -185,9 +190,10 @@ export async function buildCompactCRMContext(
   }
 
   // Filter follow-up states
-  const overdueClients = allClients.filter(c => c.next_followup && c.next_followup < today)
-  const dueTodayClients = allClients.filter(c => c.next_followup && c.next_followup === today)
-  const upcomingClients = allClients.filter(c => c.next_followup && c.next_followup > today).slice(0, 10)
+  const queueClients = canonicalActions ? reminders.map(r => ({ business_name: r.business_name, next_followup: r.due_date, next_action: r.description })) : allClients
+  const overdueClients = queueClients.filter(c => c.next_followup && c.next_followup < today)
+  const dueTodayClients = queueClients.filter(c => c.next_followup && c.next_followup === today)
+  const upcomingClients = queueClients.filter(c => c.next_followup && c.next_followup > today).slice(0, 10)
 
   // 5. Client Specific History Block (if a client is matched)
   let clientSpecificHistoryBlock = ''
@@ -201,10 +207,11 @@ export async function buildCompactCRMContext(
       clientVisitsQuery = clientVisitsQuery.eq('owner_user_id', ownerUserId)
     }
 
-    const { data: clientVisits } = await clientVisitsQuery
+    const { data: clientVisits, error: clientVisitsError } = await clientVisitsQuery
       .order('visit_date', { ascending: false })
       .limit(5)
 
+    if (clientVisitsError || !Array.isArray(clientVisits)) throw new ActionError('database', 'Client visit context query failed', 503)
     const visitLines = (clientVisits ?? []).map(
       v => `    * ${v.visit_date} [${v.statusi ?? 'vizitë'}]: ${v.shenime || '(pa shënime)'}`
     )
@@ -214,8 +221,8 @@ export async function buildCompactCRMContext(
       `=== SPECIFIC CLIENT DETAILS FOR "${matchedClient.business_name}" ===`,
       `Pipeline Status: ${matchedClient.status ?? 'prospect'}`,
       `Zone: ${matchedClient.zone ?? 'N/A'}`,
-      `Next Action: ${matchedClient.next_action || 'none'}`,
-      `Next Follow-up Due: ${matchedClient.next_followup || 'none'}`,
+      `Next Action: ${canonicalActions ? reminders.filter(r => r.client_id === matchedClient.id).map(r => r.description).join("; ") || "none" : matchedClient.next_action || "none"}`,
+      `Next Follow-up Due: ${canonicalActions ? reminders.filter(r => r.client_id === matchedClient.id).map(r => r.due_date || "unscheduled").join("; ") || "none" : matchedClient.next_followup || "none"}`,
       `Recent Visit Notes:`,
       visitLines.length > 0 ? visitLines.join('\n') : '    (asnjë vizitë e mëparshme)',
       '==================================================',

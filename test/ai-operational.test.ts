@@ -116,7 +116,7 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
   // 4. Event is emitted only after successful visit persistence
   it('4. Event is emitted only after successful visit persistence', async () => {
     // 4a. Source-boundary assertion on contexts/AppContext.tsx
-    const appContextPath = path.resolve(process.cwd(), '../eye/contexts/AppContext.tsx')
+    const appContextPath = path.resolve(process.cwd(), 'contexts/AppContext.tsx')
     assert.equal(fs.existsSync(appContextPath), true, 'AppContext.tsx must exist')
     const appContextSource = fs.readFileSync(appContextPath, 'utf8')
 
@@ -605,10 +605,10 @@ describe('AI Operational Loop — Inngest Architecture & Boundary A Verification
 
   // 16. Old direct browser /api/reminders/extract processing path is absent
   it('16. Old direct browser /api/reminders/extract processing path is absent from filesystem', () => {
-    const extractPath = path.resolve(process.cwd(), '../eye/app/api/reminders/extract')
+    const extractPath = path.resolve(process.cwd(), 'app/api/reminders/extract')
     assert.equal(fs.existsSync(extractPath), false, 'app/api/reminders/extract must not exist')
 
-    const oldDeliveryPath = path.resolve(process.cwd(), '../eye/lib/ai/client-delivery.ts')
+    const oldDeliveryPath = path.resolve(process.cwd(), 'lib/ai/client-delivery.ts')
     assert.equal(fs.existsSync(oldDeliveryPath), false, 'lib/ai/client-delivery.ts must not exist')
   })
 

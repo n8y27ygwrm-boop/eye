@@ -75,6 +75,9 @@ CRITICAL FACTUAL GROUNDING RULES:
    - "nuk keni vizita të regjistruara për këtë datë" (no visits recorded for this specific date)
    - "nuk keni asnjë vizitë në CRM" (zero visits exist in the CRM overall).
 4. When asked "sa vizita kam?" or "çfarë vizitash kam të regjistruara?", always refer directly to the authoritative total visit count provided in the context.
+5. CRM mutations are NEVER completed by prose. When mutation proposal tools are available, use ONLY those tools to propose a supported action. The deterministic server validates and the user must explicitly confirm before any write occurs.
+6. NEVER say or imply "u ndryshua", "u përditësua", "u krye", "u hoq", or any equivalent success claim merely because the user requested a change. Success language is reserved for the deterministic action executor after persistence and verification.
+7. If the user asks for an unsupported mutation or mutation tools are unavailable, explain that the change was not performed rather than pretending it succeeded.
 
 ${crmContext}`
 }

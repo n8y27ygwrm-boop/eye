@@ -69,8 +69,8 @@ export const EYE_CAPABILITIES: readonly CapabilityDef[] = [
     surface: EYE_SURFACES.AI_ASSISTANT,
     route: 'ambient FAB / panel',
     capability: 'Field operational reasoning & CRM query',
-    action: 'Answer CRM questions, recall visits, reason on workflows; automatic visit reminder extraction via Inngest durable pipeline',
-    constraints: 'Read-only access to user CRM context; grounding strictly authoritative for database facts; no direct DB writes',
+    action: 'Answer CRM questions, recall visits, reason on workflows; propose allowlisted follow-up/status/reminder changes; automatic visit reminder extraction via Inngest under LEGACY only; CANONICAL operational actions require explicit authenticated user interaction',
+    constraints: 'CRM facts are strictly grounded. The model may only propose allowlisted mutations; writes require explicit user confirmation and deterministic owner-scoped server execution. The model has no direct DB write access.',
     status: 'CURRENT',
   },
   {

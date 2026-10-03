@@ -1,5 +1,6 @@
 import React, { useState } from "react"
 import type { ImportPreviewRow } from "@/lib/import/types"
+import { buildCommitItem, validateCommitRow } from "@/lib/import/validation"
 
 interface ImportRowCardProps {
   row: ImportPreviewRow
@@ -27,6 +28,14 @@ export default function ImportRowCard({
 
   const effectiveName = row.editedBusinessName || row.normalized.business_name || ""
   const isExcluded = !row.include || (row.duplicate.isDuplicate && row.duplicateResolution === "skip")
+  const finalValues = buildCommitItem(row)
+  const validation = validateCommitRow(finalValues, "preview-owner")
+  const warnings = [...(row.normalized.warnings ?? [])]
+  if (!validation.valid && !warnings.some(warning =>
+    warning === validation.error ||
+    (warning.startsWith("Status i panjohur:") && validation.error.startsWith("Status i panjohur:"))
+  )) warnings.push(validation.error)
+  const blocked = warnings.length > 0
 
   return (
     <div className={`import-row-card ${isExcluded ? "is-excluded" : ""} ${row.missingName ? "is-missing-name" : ""} ${row.duplicate.isDuplicate ? "is-duplicate" : ""}`}>
@@ -36,6 +45,7 @@ export default function ImportRowCard({
           <input
             type="checkbox"
             checked={row.include}
+            disabled={blocked}
             onChange={e => onToggleInclude(row.id, e.target.checked)}
             className="irc-checkbox"
           />
@@ -43,7 +53,9 @@ export default function ImportRowCard({
         </label>
 
         <div className="irc-badges">
-          {row.missingName ? (
+          {blocked ? (
+            <span className="irc-status-badge badge-warning">KËRKON KORRIGJIM</span>
+          ) : row.missingName ? (
             <span className="irc-status-badge badge-warning">KËRKON EMËR</span>
           ) : row.duplicate.isDuplicate ? (
             <span className="irc-status-badge badge-duplicate">DUPLIKATË</span>
@@ -54,6 +66,11 @@ export default function ImportRowCard({
           )}
         </div>
       </div>
+
+      {warnings.length > 0 && <div className="irc-validation-warnings" role="alert">
+        <strong>Paralajmërime — ky rresht nuk mund të importohet:</strong>
+        <ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+      </div>}
 
       {/* Business Name & Missing Name Resolution */}
       <div className="irc-name-section">
@@ -147,8 +164,8 @@ export default function ImportRowCard({
               Hap në Google Maps ↗
             </a>
             {row.normalized.lat != null && row.normalized.lng != null ? (
-              <span className="irc-coords-pill" title="Koordinatat u lexuan nga linku">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="irc-inline-icon" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>{row.normalized.lat.toFixed(4)}, {row.normalized.lng.toFixed(4)}
+              <span className="irc-coords-pill" title="Koordinatat për import">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="irc-inline-icon" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>{row.normalized.lat}, {row.normalized.lng}
               </span>
             ) : (
               <span className="irc-no-coords-pill">Pa koordinata fikse</span>
@@ -192,6 +209,24 @@ export default function ImportRowCard({
               <span className="irc-fact-val">{row.sourceFacts.zone}</span>
             </div>
           )}
+          {(row.sourceFacts.lat || row.sourceFacts.lng) && (
+            <div className="irc-fact-item">
+              <span className="irc-fact-key">Koordinatat në skedar:</span>
+              <span className="irc-fact-val">{row.sourceFacts.lat ?? "—"}, {row.sourceFacts.lng ?? "—"}</span>
+            </div>
+          )}
+          {row.sourceFacts.status && (
+            <div className="irc-fact-item">
+              <span className="irc-fact-key">Statusi në skedar:</span>
+              <span className="irc-fact-val">{row.sourceFacts.status}</span>
+            </div>
+          )}
+          {row.sourceFacts.order_value && (
+            <div className="irc-fact-item">
+              <span className="irc-fact-key">Vlera totale në skedar:</span>
+              <span className="irc-fact-val">{row.sourceFacts.order_value}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -221,6 +256,29 @@ export default function ImportRowCard({
           </div>
         </div>
       )}
+
+      <div className="irc-final-values">
+        <div className="irc-section-title">VLERA PËRFUNDIMTARE QË DO TË RUHEN</div>
+        <div className="irc-final-grid">
+          {Object.entries({
+            "Emri": finalValues.business_name,
+            "Adresa": finalValues.address,
+            "Zona / Address Group": finalValues.zone,
+            "Latitude": finalValues.lat,
+            "Longitude": finalValues.lng,
+            "Maps URL": finalValues.maps_url,
+            "Personi i kontaktit": finalValues.contact_person,
+            "Telefoni": finalValues.phone,
+            "Statusi": finalValues.status,
+            "Shënime": finalValues.general_notes,
+            "Kategoria": finalValues.business_type,
+            "Vlera totale e porosive": finalValues.order_value,
+            "Arsyeja e refuzimit": finalValues.decline_reason,
+          }).map(([label, value]) => <div className="irc-final-item" key={label}>
+            <span>{label}</span><strong>{value == null || value === "" ? "—" : String(value)}</strong>
+          </div>)}
+        </div>
+      </div>
     </div>
   )
 }

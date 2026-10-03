@@ -1,23 +1,31 @@
 import React, { useState, useMemo } from "react"
 import type { ImportPreviewRow, ImportPreviewSummary, ClientImportCommitItem } from "@/lib/import/types"
 import ImportRowCard from "./ImportRowCard"
-import { resolveCommittedFields } from "@/lib/import/validation"
+import { buildCommitItem, validateCommitRow } from "@/lib/import/validation"
 
 interface ImportPreviewProps {
   summary: ImportPreviewSummary
   rows: ImportPreviewRow[]
+  headerMapping: Record<string, string>
+  ignoredHeaders: string[]
   onUpdateRows: (newRows: ImportPreviewRow[]) => void
-  onCommit: (clientsToCommit: ClientImportCommitItem[]) => Promise<void>
+  onRequestCommit: (clientsToCommit: ClientImportCommitItem[]) => void
   onBack: () => void
   isSubmitting: boolean
   error: string | null
 }
 
+function rowIsBlocked(row: ImportPreviewRow): boolean {
+  return Boolean(row.normalized.warnings?.length) || !validateCommitRow(buildCommitItem(row), "preview-owner").valid
+}
+
 export default function ImportPreview({
   summary,
   rows,
+  headerMapping,
+  ignoredHeaders,
   onUpdateRows,
-  onCommit,
+  onRequestCommit,
   onBack,
   isSubmitting,
   error,
@@ -26,7 +34,7 @@ export default function ImportPreview({
 
   // Toggle individual row inclusion
   const handleToggleInclude = (id: string, include: boolean) => {
-    onUpdateRows(rows.map(r => (r.id === id ? { ...r, include } : r)))
+    onUpdateRows(rows.map(r => (r.id === id && !rowIsBlocked(r) ? { ...r, include } : r)))
   }
 
   // Handle duplicate resolution (skip vs import_new)
@@ -37,7 +45,7 @@ export default function ImportPreview({
           return {
             ...r,
             duplicateResolution: resolution,
-            include: resolution === "import_new",
+            include: resolution === "import_new" && !rowIsBlocked(r),
           }
         }
         return r
@@ -51,13 +59,12 @@ export default function ImportPreview({
       rows.map(r => {
         if (r.id === id) {
           const updatedNormalized = { ...r.normalized, business_name: name }
+          const updated = { ...r, editedBusinessName: name, normalized: updatedNormalized, missingName: false }
+          const blocked = rowIsBlocked(updated)
           return {
-            ...r,
-            editedBusinessName: name,
-            normalized: updatedNormalized,
-            missingName: false,
-            include: true,
-            status: r.duplicate.isDuplicate
+            ...updated,
+            include: !blocked,
+            status: blocked ? "INVALID" : r.duplicate.isDuplicate
               ? "POSSIBLE_DUPLICATE"
               : r.aiDerived
               ? "READY"
@@ -73,7 +80,7 @@ export default function ImportPreview({
   const handleSelectAll = (select: boolean) => {
     onUpdateRows(
       rows.map(r => {
-        if (r.missingName && select) return r // do not select rows missing names
+        if ((r.missingName || rowIsBlocked(r)) && select) return r
         if (r.duplicate.isDuplicate && select && r.duplicateResolution === "skip") {
           return { ...r, include: true, duplicateResolution: "import_new" }
         }
@@ -86,11 +93,11 @@ export default function ImportPreview({
   const filteredRows = useMemo(() => {
     switch (activeTab) {
       case "ready":
-        return rows.filter(r => !r.missingName && !r.duplicate.isDuplicate)
+        return rows.filter(r => !r.missingName && !r.duplicate.isDuplicate && !rowIsBlocked(r))
       case "duplicates":
         return rows.filter(r => r.duplicate.isDuplicate)
       case "review":
-        return rows.filter(r => r.missingName)
+        return rows.filter(r => r.missingName || rowIsBlocked(r))
       case "all":
       default:
         return rows
@@ -103,7 +110,7 @@ export default function ImportPreview({
 
     for (const r of rows) {
       // Must be included
-      if (!r.include) continue
+      if (!r.include || rowIsBlocked(r)) continue
 
       // Must not be missing name
       const name = (r.editedBusinessName || r.normalized.business_name || "").trim()
@@ -112,26 +119,17 @@ export default function ImportPreview({
       // If duplicate, only include if user chose "import_new"
       if (r.duplicate.isDuplicate && r.duplicateResolution !== "import_new") continue
 
-      list.push({
-        business_name: name,
-        maps_url: r.sourceFacts.maps_url,
-        lat: r.normalized.lat,
-        lng: r.normalized.lng,
-        general_notes: r.sourceFacts.general_notes,
-        phone: r.sourceFacts.phone,
-        address: r.sourceFacts.address,
-        ...resolveCommittedFields(r.sourceFacts, r.aiDerived),
-        status: "prospect",
-        duplicateResolution: r.duplicateResolution,
-      })
+      const item = buildCommitItem(r)
+      list.push(item)
     }
 
     return list
   }, [rows])
 
-  const readyTotal = rows.filter(r => !r.missingName && !r.duplicate.isDuplicate).length
+  const readyTotal = rows.filter(r => !r.missingName && !r.duplicate.isDuplicate && !rowIsBlocked(r)).length
   const dupTotal = rows.filter(r => r.duplicate.isDuplicate).length
-  const reviewTotal = rows.filter(r => r.missingName).length
+  const reviewTotal = rows.filter(r => r.missingName || rowIsBlocked(r)).length
+  const withoutAiCount = rows.filter(r => !r.aiDerived && (r.normalized.business_name || r.normalized.general_notes)).length
 
   return (
     <div className="import-preview-container">
@@ -164,6 +162,18 @@ export default function ImportPreview({
         </div>
       )}
 
+      {withoutAiCount > 0 && (
+        <div className="imp-ai-notice" role="status">
+          Klasifikimi AI nuk është i disponueshëm për {withoutAiCount} rreshta — rishikoni klasifikimet manualisht.
+        </div>
+      )}
+
+      <div className="imp-mapping-panel">
+        <strong>Kolonat e lidhura</strong>
+        <div>{Object.entries(headerMapping).map(([header, field]) => <span key={header} className="imp-mapping-pill">{header} → {field}</span>)}</div>
+        {ignoredHeaders.length > 0 && <p className="imp-ignored-headers" role="alert"><strong>Kolona të injoruara:</strong> {ignoredHeaders.join(", ")}. Vlerat e tyre nuk do të ruhen.</p>}
+      </div>
+
       {/* Tabs & Bulk Actions */}
       <div className="imp-controls-bar">
         <div className="imp-tabs">
@@ -193,7 +203,7 @@ export default function ImportPreview({
             className={`imp-tab ${activeTab === "review" ? "active" : ""}`}
             onClick={() => setActiveTab("review")}
           >
-            Pa emër ({reviewTotal})
+            Për shqyrtim ({reviewTotal})
           </button>
         </div>
 
@@ -249,18 +259,18 @@ export default function ImportPreview({
 
         <div className="imp-footer-right">
           <span className="imp-commit-count-hint">
-            Do të ruhen <strong>{clientsToCommit.length}</strong> klientë
+            Do të ruhen <strong>{clientsToCommit.length}</strong> {clientsToCommit.length === 1 ? "klient" : "klientë"}
           </span>
           <button
             type="button"
             className="imp-btn-commit"
-            onClick={() => onCommit(clientsToCommit)}
+            onClick={() => onRequestCommit(clientsToCommit)}
             disabled={clientsToCommit.length === 0 || isSubmitting}
           >
             {isSubmitting ? (
               "Duke ruajtur në EYE…"
             ) : (
-              `Importo ${clientsToCommit.length} klientë`
+              `Importo ${clientsToCommit.length} ${clientsToCommit.length === 1 ? "klient" : "klientë"}`
             )}
           </button>
         </div>

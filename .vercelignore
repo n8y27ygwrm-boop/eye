@@ -1,0 +1,8 @@
+.env*
+.git
+node_modules
+.next
+test
+scratch
+/supabase/
+.vercel
