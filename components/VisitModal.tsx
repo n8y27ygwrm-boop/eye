@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useReducer } from 'react'
 import { useApp } from '@/contexts/AppContext'
-import { STATUS_DEFS, todayISO, normalize, type Visit } from '@/lib/types'
-import { findDuplicateClient, evaluateModalSaveResult } from '@/lib/lifecycle'
+import { STATUS_DEFS, todayISO, type Visit } from '@/lib/types'
+import { findDuplicateClient, evaluateModalSaveResult, isValidCoordinates } from '@/lib/lifecycle'
+import { saveVisitWithLocation } from '@/lib/location/visit-save'
+import { nearbyDecisionReducer, emptyNearbyDecisionState } from '@/lib/nearby-decision'
 import {
   isLocationFresh,
   isAccuracyPoor,
   formatAccuracy,
   generateGoogleMapsUrl,
-  resolveVisitLocationUrl,
 } from '@/lib/location/utils'
 
 export default function VisitModal() {
@@ -39,6 +40,7 @@ export default function VisitModal() {
   const [attachAnyway, setAttachAnyway] = useState(false)
   const [isRefreshingLoc, setIsRefreshingLoc] = useState(false)
   const [locNotice, setLocNotice] = useState<string | null>(null)
+  const [nearbyDecision, dispatchNearbyDecision] = useReducer(nearbyDecisionReducer, emptyNearbyDecisionState)
 
   const isEdit = !!editingVisit
 
@@ -56,8 +58,11 @@ export default function VisitModal() {
     prevOpenRef.current = visitModalOpen
     prevEditingIdRef.current = editingVisit?.id
 
+    if (!visitModalOpen) {
+      dispatchNearbyDecision({ type: 'reset' })
+      return
+    }
     if (!justOpened && !visitChanged) return
-    if (!visitModalOpen) return
 
     if (editingVisit) {
       setDate(editingVisit.visit_date ?? todayISO())
@@ -92,6 +97,7 @@ export default function VisitModal() {
     setShowDropdown(false)
     setError('')
     setIsVisitPersisted(false)
+    dispatchNearbyDecision({ type: 'reset' })
   }, [visitModalOpen, editingVisit?.id, visitModalDate, activeClient, clients])
 
   if (!visitModalOpen) return null
@@ -122,6 +128,7 @@ export default function VisitModal() {
     if (!name || !date) return
     setSaving(true)
     setError('')
+    setLocNotice(null)
 
     // Duplicate safety resolution: if no client selected but name matches an existing client
     let resolvedClientId = clientId || null
@@ -132,42 +139,46 @@ export default function VisitModal() {
       }
     }
 
-    let finalLocationUrl: string | null = locationUrl || null
-
-    if (attachLocation) {
-      let locToAttach = currentLocation
-      const isFresh = locToAttach ? isLocationFresh(locToAttach.timestamp) : false
-
-      if (!isFresh) {
+    const save = await saveVisitWithLocation({
+      attachLocation,
+      attachAnyway,
+      currentLocation,
+      manualLocationUrl: locationUrl || null,
+      refreshLocation: async () => {
         setIsRefreshingLoc(true)
-        const refreshed = await refreshLocation()
-        setIsRefreshingLoc(false)
-        if (refreshed) {
-          locToAttach = refreshed
-        } else {
-          locToAttach = null
-          setLocNotice('Vendndodhja nuk u rifreskua. Vizita po ruhet pa koordinata.')
+        try {
+          return await refreshLocation()
+        } finally {
+          setIsRefreshingLoc(false)
         }
-      }
-
-      finalLocationUrl = resolveVisitLocationUrl({
-        attachLocation,
-        attachAnyway,
-        currentLocation: locToAttach,
-        manualLocationUrl: locationUrl,
-      })
-    }
-
-    const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
-      client_id: resolvedClientId,
-      visit_date: date,
-      business_name: resolvedClientId ? (clients.find(c => c.id === resolvedClientId)?.business_name ?? name) : name,
-      location_url: finalLocationUrl,
-      statusi,
-      shenime: shenime || null,
-    }
-    const res = await upsertVisit(payload, editingVisit?.id, { intent: 'leave' })
+      },
+      persist: (finalLocationUrl, attachedLocation) => {
+        const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
+          client_id: resolvedClientId,
+          visit_date: date,
+          business_name: resolvedClientId ? (clients.find(c => c.id === resolvedClientId)?.business_name ?? name) : name,
+          location_url: finalLocationUrl,
+          statusi,
+          shenime: shenime || null,
+        }
+        return upsertVisit(payload, editingVisit?.id, { intent: 'leave' }, {
+          attachedLocation,
+          approvedNearbyDecision: nearbyDecision.approved,
+        })
+      },
+    })
     setSaving(false)
+    if (save.kind === 'location_error') {
+      setError(save.message)
+      setLocNotice(save.message)
+      return
+    }
+    const res = save.value
+    if (res.kind === 'decision_required') {
+      dispatchNearbyDecision({ type: 'required', businessName: name, candidates: res.candidates })
+      return
+    }
+    dispatchNearbyDecision({ type: 'reset' })
     const outcome = evaluateModalSaveResult(res)
     if (outcome.action === 'close_modal') {
       closeVisitModal()
@@ -196,7 +207,10 @@ export default function VisitModal() {
     setClientId(id)
     setSearch(name)
     setShowDropdown(false)
+    dispatchNearbyDecision({ type: 'reset' })
   }
+
+  const matchedClient = clientId ? clients.find(c => c.id === clientId) : findDuplicateClient(clients, search)
 
   // Layout wraps this in modal-overlay-center — just return the card
   return (
@@ -230,7 +244,7 @@ export default function VisitModal() {
             type="text"
             value={search}
             placeholder="Kërko biznesin…"
-            onChange={e => { setSearch(e.target.value); setClientId(''); setShowDropdown(true) }}
+            onChange={e => { setSearch(e.target.value); setClientId(''); setShowDropdown(true); dispatchNearbyDecision({ type: 'reset' }) }}
             onFocus={() => search.length >= 1 && setShowDropdown(true)}
             autoComplete="off"
           />
@@ -255,7 +269,28 @@ export default function VisitModal() {
                 : 'Biznes i ri — do të regjistrohet automatikisht si klient me këtë vizitë'}
             </div>
           )}
+          {nearbyDecision.candidates.length > 0 && !clientId && (
+            <div className="visit-nearby" role="alert">
+              <strong>Ekziston një subjekt pranë këtij lokacioni</strong>
+              {nearbyDecision.candidates.map(({ client, distanceMeters }) => (
+                <div className="visit-nearby-row" key={client.id}>
+                  <div><b>{client.business_name}</b><span>{[client.zone, client.address].filter(Boolean).join(' · ')} · {Math.round(distanceMeters)} m</span></div>
+                  <button type="button" className="btn-loc-subtle" onClick={() => selectClient(client.id, client.business_name)}>Përdor këtë klient</button>
+                </div>
+              ))}
+              <button type="button" className="btn-loc-subtle" onClick={() => dispatchNearbyDecision({ type: 'approve' })}>Vazhdo si biznes i ri</button>
+            </div>
+          )}
+          {nearbyDecision.approved && <div className="visit-nearby-note">Biznesi i ri do të ruhet si klient i veçantë.</div>}
         </div>
+
+        {attachLocation && matchedClient && currentLocation && (
+          <div className="visit-nearby-note">
+            {isValidCoordinates(matchedClient.lat, matchedClient.lng)
+              ? 'Vizita do të ruajë vendndodhjen e saj. Lokacioni i klientit nuk do të ndryshojë.'
+              : 'Vendndodhja do të shtohet te ky klient.'}
+          </div>
+        )}
 
         {/* Location Section */}
         <div className="modal-field visit-loc-field">

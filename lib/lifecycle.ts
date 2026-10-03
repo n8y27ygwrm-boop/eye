@@ -1,4 +1,8 @@
 import { normalize, type Client, type Visit, STATUS_DEFS } from "./types"
+import type { CurrentLocation } from "./location/types"
+import { generateGoogleMapsUrl, isAccuracyPoor, isLocationFresh } from "./location/utils"
+import { matchesNearbyDecision, type NearbyClient, type NearbyDecision } from './nearby-decision'
+export type { NearbyClient } from './nearby-decision'
 
 export type ClientStatusKey = typeof STATUS_DEFS[number]["key"]
 
@@ -94,11 +98,56 @@ export function calculateNextClientStatus(
  */
 export function findDuplicateClient(
   clients: Client[],
-  businessName: string
+  businessName: string,
+  ownerUserId?: string
 ): Client | undefined {
-  const normInput = normalize(businessName)
+  // A hyphen separates words in field-entered names (Bar-Roma = Bar Roma).
+  const nameKey = (name: string) => normalize(name.replace(/[-‐‑–—]/g, ' '))
+  const normInput = nameKey(businessName)
   if (!normInput) return undefined
-  return clients.find(c => normalize(c.business_name) === normInput)
+  return clients.find(c => (!ownerUserId || !c.owner_user_id || c.owner_user_id === ownerUserId) && nameKey(c.business_name) === normInput)
+}
+
+export const NEARBY_CLIENT_RADIUS_METERS = 30
+
+export type AttachedVisitLocation = {
+  location: CurrentLocation
+  acknowledgedPoorAccuracy: boolean
+}
+
+export function isValidCoordinates(latitude: number | null, longitude: number | null): boolean {
+  return latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
+    && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+}
+
+export function findNearbyClients(clients: Client[], location: Pick<CurrentLocation, 'latitude' | 'longitude'>, ownerUserId?: string): NearbyClient[] {
+  if (!isValidCoordinates(location.latitude, location.longitude)) return []
+  const radians = (degrees: number) => degrees * Math.PI / 180
+  return clients.flatMap(client => {
+    if (ownerUserId && client.owner_user_id && client.owner_user_id !== ownerUserId) return []
+    if (!isValidCoordinates(client.lat, client.lng)) return []
+    const latitudeDelta = radians(client.lat! - location.latitude)
+    const longitudeDelta = radians(client.lng! - location.longitude)
+    const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(location.latitude)) * Math.cos(radians(client.lat!)) * Math.sin(longitudeDelta / 2) ** 2
+    const distanceMeters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return distanceMeters <= NEARBY_CLIENT_RADIUS_METERS ? [{ client, distanceMeters }] : []
+  }).sort((a, b) => a.distanceMeters - b.distanceMeters || a.client.business_name.localeCompare(b.client.business_name))
+}
+
+export function resolveVisitClient(params: { clients: Client[]; clientId: string | null; businessName: string; ownerUserId?: string; location?: AttachedVisitLocation | null }):
+  | { kind: 'existing'; client: Client }
+  | { kind: 'nearby'; candidates: NearbyClient[] }
+  | { kind: 'new' }
+  | { kind: 'invalid' } {
+  const { clients, clientId, businessName, ownerUserId, location } = params
+  if (clientId) {
+    const client = clients.find(c => c.id === clientId && (!ownerUserId || !c.owner_user_id || c.owner_user_id === ownerUserId))
+    return client ? { kind: 'existing', client } : { kind: 'invalid' }
+  }
+  const exact = findDuplicateClient(clients, businessName, ownerUserId)
+  if (exact) return { kind: 'existing', client: exact }
+  const candidates = location ? findNearbyClients(clients, location.location, ownerUserId) : []
+  return candidates.length ? { kind: 'nearby', candidates } : { kind: 'new' }
 }
 
 /**
@@ -137,6 +186,7 @@ export type UpsertVisitResult =
       client?: Client
       clientStatusUpdated?: boolean
       newStatus?: string
+      updatedClient?: Client
     }
   | {
       ok: false
@@ -151,7 +201,9 @@ export type UpsertVisitResult =
       visit?: Visit
       client?: Client
       clientStatusUpdated?: boolean
+      updatedClient?: Client
     }
+  | { ok: false; kind: 'decision_required'; candidates: NearbyClient[]; error: string }
 
 export interface LifecycleDbAdapter {
   createClient: (client: {
@@ -159,15 +211,22 @@ export interface LifecycleDbAdapter {
     status: string
     source: string
     maps_url: string | null
+    lat: number | null
+    lng: number | null
   }) => Promise<{ data: Client | null; error: { message: string } | null }>
 
   deleteClient: (clientId: string) => Promise<{ error: { message: string } | null }>
 
   updateClientStatus: (
     clientId: string,
-    status: string,
+    status: string | null,
     updatedAt: string
   ) => Promise<{ error: { message: string } | null }>
+
+  updateClientLocation: (
+    client: Client,
+    location: { lat: number; lng: number; maps_url: string; updated_at: string }
+  ) => Promise<{ data: Client | null; error: { message: string } | null }>
 
   createVisit: (
     visit: Omit<Visit, "id" | "created_at" | "updated_at">
@@ -201,6 +260,8 @@ export async function orchestrateUpsertVisit(params: {
   clients: Client[]
   adapter: LifecycleDbAdapter
   nowISO?: () => string
+  attachedLocation?: AttachedVisitLocation | null
+  approvedNearbyDecision?: NearbyDecision | null
 }): Promise<UpsertVisitResult> {
   const {
     payload,
@@ -208,30 +269,21 @@ export async function orchestrateUpsertVisit(params: {
     clients,
     adapter,
     nowISO = () => new Date().toISOString(),
+    attachedLocation,
+    approvedNearbyDecision,
   } = params
-
-  let resolvedClientId = payload.client_id || null
-  let matchedClient = resolvedClientId
-    ? clients.find(c => c.id === resolvedClientId)
-    : undefined
-
-  // Cross-user relationship validation: if client_id is supplied, verify it belongs to user
-  if (resolvedClientId) {
-    if (!matchedClient) {
-      return { ok: false, kind: "failure", error: "Klienti i zgjedhur nuk ekziston ose nuk ju përket juve." }
-    }
-    if (payload.owner_user_id && matchedClient.owner_user_id && matchedClient.owner_user_id !== payload.owner_user_id) {
-      return { ok: false, kind: "failure", error: "Klienti i zgjedhur nuk ju përket juve." }
-    }
+  if (attachedLocation && (!isValidCoordinates(attachedLocation.location.latitude, attachedLocation.location.longitude)
+    || !isLocationFresh(attachedLocation.location.timestamp)
+    || (isAccuracyPoor(attachedLocation.location.accuracy) && !attachedLocation.acknowledgedPoorAccuracy))) {
+    return { ok: false, kind: 'failure', error: 'Vendndodhja duhet rifreskuar ose konfirmuar para ruajtjes.' }
   }
-
-  // Duplicate safety resolution: if no client_id was provided, check if business_name matches an existing client
-  if (!resolvedClientId && payload.business_name) {
-    matchedClient = findDuplicateClient(clients, payload.business_name)
-    if (matchedClient) {
-      resolvedClientId = matchedClient.id
-    }
+  const identity = resolveVisitClient({ clients, clientId: payload.client_id, businessName: payload.business_name ?? '', ownerUserId: payload.owner_user_id, location: attachedLocation })
+  if (identity.kind === 'invalid') return { ok: false, kind: 'failure', error: 'Klienti i zgjedhur nuk ekziston ose nuk ju përket juve.' }
+  if (!editingId && identity.kind === 'nearby' && !matchesNearbyDecision(approvedNearbyDecision, payload.business_name ?? '', identity.candidates)) {
+    return { ok: false, kind: 'decision_required', candidates: identity.candidates, error: 'Zgjidhni klientin pranë ose konfirmoni biznes të ri.' }
   }
+  const matchedClient = identity.kind === 'existing' ? identity.client : undefined
+  const resolvedClientId = matchedClient?.id ?? null
 
   // -------------------------------------------------------------------------
   // BRANCH 1: EDITING AN EXISTING VISIT (Historical edit)
@@ -271,6 +323,8 @@ export async function orchestrateUpsertVisit(params: {
       status: initialStatus,
       source: "field_visit",
       maps_url: payload.location_url || null,
+      lat: attachedLocation?.location.latitude ?? null,
+      lng: attachedLocation?.location.longitude ?? null,
       ...(payload.owner_user_id ? { owner_user_id: payload.owner_user_id } : {}),
     }
 
@@ -338,7 +392,7 @@ export async function orchestrateUpsertVisit(params: {
     return { ok: false, kind: "failure", error: msg }
   }
 
-  // Step 3.2: Check if client status progression applies
+  // Step 3.2: Advance status, then establish a missing business location.
   if (matchedClient) {
     const currentStatus = matchedClient.status
     const nextStatus = calculateNextClientStatus(currentStatus, payload.statusi)
@@ -373,15 +427,35 @@ export async function orchestrateUpsertVisit(params: {
         }
       }
 
-      // Both visit insert and client status update succeeded
-      return {
-        ok: true,
-        kind: "success",
-        data: createdVisit,
-        clientStatusUpdated: true,
-        newStatus: nextStatus,
-      }
     }
+
+    if (attachedLocation && !isValidCoordinates(matchedClient.lat, matchedClient.lng)) {
+      const location = attachedLocation.location
+      const { data: updatedClient, error: locationError } = await adapter.updateClientLocation(matchedClient, {
+        lat: location.latitude,
+        lng: location.longitude,
+        maps_url: generateGoogleMapsUrl(location.latitude, location.longitude),
+        updated_at: nowISO(),
+      })
+      if (locationError || !updatedClient) {
+        // Restore status before removing the visit. Any failed compensation is reported explicitly.
+        const statusRollback = nextStatus !== currentStatus
+          ? await adapter.updateClientStatus(resolvedClientId, currentStatus, nowISO())
+          : { error: null }
+        const visitRollback = await adapter.deleteVisit(createdVisit.id)
+        if (statusRollback.error || visitRollback.error) {
+          return {
+            ok: false, kind: 'partial', visit: visitRollback.error ? createdVisit : undefined,
+            clientStatusUpdated: !!statusRollback.error,
+            error: `Përditësimi i vendndodhjes dështoi (${locationError?.message ?? 'nuk u kthye klienti'}); anulimi nuk përfundoi.`,
+            message: 'Ruajtja mbeti pjesërisht në sistem. Kontrolloni klientin dhe vizitën para çdo riprovimi.',
+          }
+        }
+        return { ok: false, kind: 'failure', error: `Përditësimi i vendndodhjes dështoi (${locationError?.message ?? 'nuk u kthye klienti'}). Vizita u anulua për të shmangur të dhëna të paplota.` }
+      }
+      return { ok: true, kind: 'success', data: createdVisit, updatedClient, clientStatusUpdated: nextStatus !== currentStatus, newStatus: nextStatus }
+    }
+    if (nextStatus !== currentStatus) return { ok: true, kind: 'success', data: createdVisit, clientStatusUpdated: true, newStatus: nextStatus }
   }
 
   // Visit created, no client status change was required
@@ -438,6 +512,10 @@ export function evaluateModalSaveResult(
       error: result.message,
       action: "show_error_allow_retry",
     }
+  }
+
+  if (result.kind === 'partial') {
+    return { isVisitPersisted: false, canRetrySave: true, error: result.message, action: 'show_error_allow_retry' }
   }
 
   return {

@@ -6,11 +6,17 @@ import {
   getVisitDisplayName,
   orchestrateUpsertVisit,
   evaluateModalSaveResult,
+  findNearbyClients,
+  NEARBY_CLIENT_RADIUS_METERS,
+  type AttachedVisitLocation,
   type LifecycleDbAdapter,
   type UpsertVisitResult,
   type ModalSubmissionState,
 } from "../lib/lifecycle"
 import type { Client, Visit } from "../lib/types"
+import { generateGoogleMapsUrl } from "../lib/location/utils"
+import { groupClientsByCoordinates, isUnlocated } from "../lib/location/group"
+import { emptyNearbyDecisionState, makeNearbyDecision, nearbyDecisionReducer } from "../lib/nearby-decision"
 
 const mockClients: Client[] = [
   {
@@ -147,28 +153,299 @@ describe("Client Lifecycle Integrity — V1 Status Mapping & Pure Rules", () => 
   })
 })
 
+describe('Visit GPS → client location → map', () => {
+  const owner = 'owner-a'
+  const gps: AttachedVisitLocation = {
+    location: { latitude: 41.3275, longitude: 19.8187, accuracy: 12, timestamp: Date.now() },
+    acknowledgedPoorAccuracy: false,
+  }
+  const client = (id: string, name: string, patch: Partial<Client> = {}): Client => ({
+    ...mockClients[0], id, business_name: name, owner_user_id: owner, status: 'prospect',
+    lat: null, lng: null, maps_url: null, ...patch,
+  })
+  const payload = (name: string, clientId: string | null = null): Omit<Visit, 'id' | 'created_at' | 'updated_at'> => ({
+    client_id: clientId, business_name: name, owner_user_id: owner, visit_date: '2026-10-03',
+    statusi: 'prospect', shenime: null, location_url: generateGoogleMapsUrl(gps.location.latitude, gps.location.longitude),
+  })
+  function adapter(overrides: Partial<LifecycleDbAdapter> = {}) {
+    const calls = { createClient: 0, deleteClient: 0, updateClientStatus: 0, updateClientLocation: 0, createVisit: 0, updateVisit: 0, deleteVisit: 0 }
+    let createdClientInput: Parameters<LifecycleDbAdapter['createClient']>[0] | null = null
+    let createdVisitInput: Parameters<LifecycleDbAdapter['createVisit']>[0] | null = null
+    const api: LifecycleDbAdapter = {
+      createClient: async input => {
+        calls.createClient++; createdClientInput = input
+        return overrides.createClient ? overrides.createClient(input) : { data: client('new', input.business_name, input), error: null }
+      },
+      deleteClient: async id => { calls.deleteClient++; return overrides.deleteClient ? overrides.deleteClient(id) : { error: null } },
+      updateClientStatus: async (id, status, at) => {
+        calls.updateClientStatus++
+        return overrides.updateClientStatus ? overrides.updateClientStatus(id, status, at) : { error: null }
+      },
+      updateClientLocation: async (existing, location) => {
+        calls.updateClientLocation++
+        return overrides.updateClientLocation ? overrides.updateClientLocation(existing, location) : { data: { ...existing, ...location }, error: null }
+      },
+      createVisit: async input => {
+        calls.createVisit++; createdVisitInput = input
+        return overrides.createVisit ? overrides.createVisit(input) : { data: { ...input, id: 'visit-new', created_at: 'now', updated_at: null }, error: null }
+      },
+      updateVisit: async (id, input) => {
+        calls.updateVisit++
+        return overrides.updateVisit ? overrides.updateVisit(id, input) : { data: { ...payload('Historical', input.client_id ?? null), ...input, id, created_at: 'then', updated_at: 'now' }, error: null }
+      },
+      deleteVisit: async id => { calls.deleteVisit++; return overrides.deleteVisit ? overrides.deleteVisit(id) : { error: null } },
+    }
+    return { api, calls, get createdClientInput() { return createdClientInput }, get createdVisitInput() { return createdVisitInput } }
+  }
+
+  it('1. creates one located client and one linked visit with separate visit evidence', async () => {
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('New Cafe'), clients: [], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success')
+    assert.equal(db.calls.createClient, 1); assert.equal(db.calls.createVisit, 1)
+    assert.equal(db.createdClientInput?.lat, gps.location.latitude)
+    assert.equal(db.createdClientInput?.lng, gps.location.longitude)
+    assert.equal(db.createdClientInput?.maps_url, generateGoogleMapsUrl(41.3275, 19.8187))
+    assert.equal(db.createdClientInput?.source, 'field_visit')
+    assert.equal(db.createdVisitInput?.client_id, 'new')
+    assert.equal(db.createdVisitInput?.location_url, payload('New Cafe').location_url)
+  })
+
+  it('2. leaves a new client unlocated without structured GPS', async () => {
+    const db = adapter()
+    await orchestrateUpsertVisit({ payload: { ...payload('No GPS'), location_url: 'https://maps.google.com/elsewhere' }, clients: [], adapter: db.api })
+    assert.equal(db.createdClientInput?.lat, null); assert.equal(db.createdClientInput?.lng, null)
+  })
+
+  it('3. selected unlocated client gains coordinates without another client insert', async () => {
+    const existing = client('existing', 'Bar Roma')
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Bar Roma', existing.id), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success'); assert.equal(db.calls.createClient, 0)
+    assert.equal(db.calls.updateClientLocation, 1)
+    assert.equal(result.updatedClient?.lat, gps.location.latitude)
+    assert.equal(result.updatedClient?.lng, gps.location.longitude)
+    assert.equal(result.data.client_id, existing.id)
+  })
+
+  it('4. normalized hyphenated name resolves to existing owner client', async () => {
+    const existing = client('roma', 'Bar Roma')
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload(' bar-roma '), clients: [existing], adapter: db.api })
+    assert.equal(result.kind, 'success'); assert.equal(result.data.client_id, existing.id)
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('5. an already located client retains its business coordinates', async () => {
+    const existing = client('mapped', 'Mapped', { lat: 41.3, lng: 19.8 })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Mapped', existing.id), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success'); assert.equal(db.calls.updateClientLocation, 0)
+    assert.equal(result.data.location_url, generateGoogleMapsUrl(41.3275, 19.8187))
+  })
+
+  it('6. nearby different name requests a choice before any write', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'decision_required'); assert.equal(result.candidates[0].client.id, 'neighbor')
+    assert.equal(db.calls.createClient, 0); assert.equal(db.calls.createVisit, 0)
+  })
+
+  it('uses the named 30-meter radius as a conservative candidate boundary', () => {
+    assert.equal(NEARBY_CLIENT_RADIUS_METERS, 30)
+    const metersToDegrees = 1 / 111195
+    const near = client('near', 'Near', { lat: 41.3275 + 29 * metersToDegrees, lng: 19.8187 })
+    const far = client('far', 'Far', { lat: 41.3275 + 31 * metersToDegrees, lng: 19.8187 })
+    assert.deepEqual(findNearbyClients([near, far], gps.location, owner).map(c => c.client.id), ['near'])
+  })
+
+  it('7. selecting a nearby candidate attaches the visit to it', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload(existing.business_name, existing.id), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success'); assert.equal(result.data.client_id, existing.id)
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('8. explicit continue-as-new creates a distinct client at a shared coordinate', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: makeNearbyDecision('New Shop', [{ client: existing, distanceMeters: 0 }]) })
+    assert.equal(result.kind, 'success'); assert.equal(db.calls.createClient, 1)
+    assert.equal(result.data.client_id, 'new')
+  })
+
+  it('approval survives GPS jitter when the nearby candidate set is unchanged', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const first = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(first.kind, 'decision_required')
+    if (first.kind !== 'decision_required') return
+    const warning = nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: first.candidates })
+    const approved = nearbyDecisionReducer(warning, { type: 'approve' })
+    const jittered: AttachedVisitLocation = { ...gps, location: { ...gps.location, latitude: gps.location.latitude + 0.00002, longitude: gps.location.longitude - 0.00002 } }
+    const second = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: jittered, approvedNearbyDecision: approved.approved })
+    assert.equal(second.kind, 'success')
+    assert.equal(db.calls.createClient, 1)
+    assert.equal(db.calls.createVisit, 1)
+  })
+
+  it('changing the business name invalidates continue-as-new approval', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const approved = nearbyDecisionReducer(nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: [{ client: existing, distanceMeters: 0 }] }), { type: 'approve' })
+    const changed = nearbyDecisionReducer(approved, { type: 'reset' }) // Business input onChange
+    assert.equal(changed.approved, null)
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Different Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: approved.approved })
+    assert.equal(result.kind, 'decision_required') // Rejected even if stale state were passed through.
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('selecting an existing client clears approval and uses that client', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const approved = nearbyDecisionReducer(nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: [{ client: existing, distanceMeters: 0 }] }), { type: 'approve' })
+    const selected = nearbyDecisionReducer(approved, { type: 'reset' }) // selectClient
+    assert.equal(selected.approved, null)
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload(existing.business_name, existing.id), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: selected.approved })
+    assert.equal(result.kind, 'success')
+    assert.equal(result.data.client_id, existing.id)
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('closing and reopening the modal clears continue-as-new approval', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const approved = nearbyDecisionReducer(nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: [{ client: existing, distanceMeters: 0 }] }), { type: 'approve' })
+    const closed = nearbyDecisionReducer(approved, { type: 'reset' }) // Modal close
+    const reopened = nearbyDecisionReducer(closed, { type: 'reset' }) // Modal open
+    assert.equal(reopened.approved, null)
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: reopened.approved })
+    assert.equal(result.kind, 'decision_required')
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('a materially changed nearby candidate set requires a new decision', async () => {
+    const first = client('first', 'First', { lat: 41.3275, lng: 19.8187 })
+    const second = client('second', 'Second', { lat: 41.32782, lng: 19.8187 })
+    const db = adapter()
+    const initial = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [first, second], adapter: db.api, attachedLocation: gps })
+    assert.equal(initial.kind, 'decision_required')
+    if (initial.kind !== 'decision_required') return
+    assert.deepEqual(initial.candidates.map(candidate => candidate.client.id), ['first'])
+    const jittered: AttachedVisitLocation = { ...gps, location: { ...gps.location, latitude: 41.32756 } }
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [first, second], adapter: db.api, attachedLocation: jittered, approvedNearbyDecision: makeNearbyDecision('New Shop', initial.candidates) })
+    assert.equal(result.kind, 'decision_required')
+    if (result.kind === 'decision_required') assert.deepEqual(result.candidates.map(candidate => candidate.client.id), ['first', 'second'])
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('9. foreign owner cannot match by name, proximity, or explicit id', async () => {
+    const foreign = client('foreign', 'Bar Roma', { owner_user_id: 'owner-b', lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const byName = await orchestrateUpsertVisit({ payload: payload('Bar Roma'), clients: [foreign], adapter: db.api, attachedLocation: gps })
+    assert.equal(byName.kind, 'success'); assert.equal(byName.data.client_id, 'new')
+    const byId = await orchestrateUpsertVisit({ payload: payload('Bar Roma', 'foreign'), clients: [foreign], adapter: db.api, attachedLocation: gps })
+    assert.equal(byId.kind, 'failure')
+    assert.deepEqual(findNearbyClients([foreign], gps.location, owner), [])
+  })
+
+  it('10. historical edit never changes client location or status', async () => {
+    const existing = client('old', 'Old', { lat: null, lng: null })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Old', 'old'), editingId: 'historical', clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success'); assert.equal(db.calls.updateVisit, 1)
+    assert.equal(db.calls.updateClientLocation, 0); assert.equal(db.calls.updateClientStatus, 0)
+  })
+
+  it('11. failed location update deletes the new visit and does not report success', async () => {
+    const existing = client('unlocated', 'Unlocated')
+    const statuses: (string | null)[] = []
+    const db = adapter({
+      updateClientLocation: async () => ({ data: null, error: { message: 'denied' } }),
+      updateClientStatus: async (_id, status) => { statuses.push(status); return { error: null } },
+    })
+    const result = await orchestrateUpsertVisit({ payload: { ...payload('Unlocated', existing.id), statusi: 'Catalog sent' }, clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'failure'); assert.equal(db.calls.deleteVisit, 1)
+    assert.deepEqual(statuses, ['Catalog sent', 'prospect'])
+  })
+
+  it('11b. failed rollback reports a partial persisted visit', async () => {
+    const existing = client('unlocated', 'Unlocated')
+    const db = adapter({ updateClientLocation: async () => ({ data: null, error: { message: 'denied' } }), deleteVisit: async () => ({ error: { message: 'denied' } }) })
+    const result = await orchestrateUpsertVisit({ payload: payload('Unlocated', existing.id), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'partial'); assert.equal(result.visit?.id, 'visit-new')
+    assert.equal(evaluateModalSaveResult(result).isVisitPersisted, true)
+  })
+
+  it('12. failed visit insert deletes a newly created located client', async () => {
+    const db = adapter({ createVisit: async () => ({ data: null, error: { message: 'insert failed' } }) })
+    const result = await orchestrateUpsertVisit({ payload: payload('New Located'), clients: [], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'failure'); assert.equal(db.calls.deleteClient, 1)
+  })
+
+  it('13. applying the returned client turns an unlocated map record into a marker', async () => {
+    const existing = client('map-target', 'Map Target')
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Map Target', existing.id), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success')
+    const localClients = [existing].map(c => c.id === result.updatedClient?.id ? result.updatedClient : c)
+    assert.equal(isUnlocated(existing), true)
+    assert.equal(isUnlocated(localClients[0]), false)
+    assert.equal(groupClientsByCoordinates(localClients).size, 1)
+  })
+
+  it('14. two businesses can remain distinct at the same coordinate after confirmation', async () => {
+    const existing = client('first', 'First', { lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Second'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: makeNearbyDecision('Second', [{ client: existing, distanceMeters: 0 }]) })
+    assert.equal(result.kind, 'success')
+    assert.equal(groupClientsByCoordinates([existing, result.client!]).get('41.3275,19.8187')?.length, 2)
+  })
+
+  it('repairs a half-location as a complete coordinate pair', async () => {
+    const existing = client('half', 'Half', { lat: 41.2, lng: null })
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Half', existing.id), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(result.kind, 'success')
+    assert.equal(result.updatedClient?.lat, 41.3275); assert.equal(result.updatedClient?.lng, 19.8187)
+  })
+
+  it('rejects poor GPS until the existing attach-anyway decision is explicit', async () => {
+    const db = adapter()
+    const poor: AttachedVisitLocation = { location: { ...gps.location, accuracy: 400 }, acknowledgedPoorAccuracy: false }
+    const rejected = await orchestrateUpsertVisit({ payload: payload('Poor GPS'), clients: [], adapter: db.api, attachedLocation: poor })
+    assert.equal(rejected.kind, 'failure'); assert.equal(db.calls.createClient, 0)
+    const accepted = await orchestrateUpsertVisit({ payload: payload('Poor GPS'), clients: [], adapter: db.api, attachedLocation: { ...poor, acknowledgedPoorAccuracy: true } })
+    assert.equal(accepted.kind, 'success'); assert.equal(db.calls.createClient, 1)
+  })
+})
+
 describe("Client Lifecycle Integrity — Real Orchestration & Rollback Tests", () => {
   function makeMockAdapter(overrides: Partial<LifecycleDbAdapter> = {}): LifecycleDbAdapter & {
     calls: {
       createClient: number
       deleteClient: number
       updateClientStatus: number
+      updateClientLocation: number
       createVisit: number
       updateVisit: number
       deleteVisit: number
     }
     deletedClientIds: string[]
     deletedVisitIds: string[]
-    updatedClientStatuses: { clientId: string; status: string }[]
+    updatedClientStatuses: { clientId: string; status: string | null }[]
   } {
     const deletedClientIds: string[] = []
     const deletedVisitIds: string[] = []
-    const updatedClientStatuses: { clientId: string; status: string }[] = []
+    const updatedClientStatuses: { clientId: string; status: string | null }[] = []
 
     const calls = {
       createClient: 0,
       deleteClient: 0,
       updateClientStatus: 0,
+      updateClientLocation: 0,
       createVisit: 0,
       updateVisit: 0,
       deleteVisit: 0,
@@ -186,8 +463,8 @@ describe("Client Lifecycle Integrity — Real Orchestration & Rollback Tests", (
             business_type: null,
             zone: null,
             address: null,
-            lat: null,
-            lng: null,
+            lat: client.lat,
+            lng: client.lng,
             phone: null,
             contact_person: null,
             general_notes: null,
@@ -214,6 +491,11 @@ describe("Client Lifecycle Integrity — Real Orchestration & Rollback Tests", (
         updatedClientStatuses.push({ clientId, status })
         if (overrides.updateClientStatus) return overrides.updateClientStatus(clientId, status, updatedAt)
         return { error: null }
+      },
+      updateClientLocation: async (client, location) => {
+        calls.updateClientLocation++
+        if (overrides.updateClientLocation) return overrides.updateClientLocation(client, location)
+        return { data: { ...client, ...location }, error: null }
       },
       createVisit: async visit => {
         calls.createVisit++
