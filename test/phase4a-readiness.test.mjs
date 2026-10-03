@@ -98,8 +98,8 @@ test('real authority and receipt modules initialize with stable secret and rejec
 
 test('proposed database freeze drains an in-flight writer and blocks all later roles without changing source',async()=>{
   const root=mkdtempSync('/tmp/eye-phase4a-db-'),data=join(root,'data'),socket=join(root,'socket'),port=String(59500+Math.floor(Math.random()*400));mkdirSync(socket);let started=false
-  function run(bin,args,input){const r=spawnSync('rtk',['proxy',bin,...args],{input,encoding:'utf8',timeout:60000});if(r.error||r.status!==0)throw new Error(r.error?.message??r.stderr);return r.stdout}
-  function asyncRun(args,input){return new Promise((resolve,reject)=>{const p=spawn('rtk',['proxy','psql',...args],{stdio:['pipe','pipe','pipe']});let out='',err='';p.stdout.on('data',d=>out+=d);p.stderr.on('data',d=>err+=d);p.on('error',reject);p.on('close',code=>code===0?resolve(out):reject(new Error(err)));p.stdin.end(input)})}
+  function run(bin,args,input){const r=spawnSync(bin,args,{input,encoding:'utf8',timeout:60000});if(r.error||r.status!==0)throw new Error(r.error?.message??r.stderr);return r.stdout}
+  function asyncRun(args,input){return new Promise((resolve,reject)=>{const p=spawn('psql',args,{stdio:['pipe','pipe','pipe']});let out='',err='';p.stdout.on('data',d=>out+=d);p.stderr.on('data',d=>err+=d);p.on('error',reject);p.on('close',code=>code===0?resolve(out):reject(new Error(err)));p.stdin.end(input)})}
   try{
     run('initdb',['-D',data,'-A','trust','-U','postgres','--no-instructions']);run('pg_ctl',['-D',data,'-o',`-c listen_addresses= -c unix_socket_directories=${socket} -p ${port}`,'-l',join(root,'postgres.log'),'-w','start']);started=true
     const args=['-X','-v','ON_ERROR_STOP=1','-h',socket,'-p',port,'-U','postgres','-d','postgres'];const sql=s=>run('psql',args,s)

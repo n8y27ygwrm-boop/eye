@@ -82,7 +82,7 @@ test('production routes expose authenticated readiness with no test imports or m
 
 test('real Phase 1 RPC retries import one action/event; executable fences retain canonical reads and block old writers',async()=>{
   const root=mkdtempSync('/tmp/eye-phase4b-db-'),data=join(root,'data'),socket=join(root,'socket'),port=String(61000+Math.floor(Math.random()*400));mkdirSync(socket);let started=false
-  function run(bin:string,args:string[],input?:string){const r=spawnSync('rtk',['proxy',bin,...args],{input,encoding:'utf8',timeout:60000});if(r.error||r.status!==0)throw Error(r.error?.message??r.stderr);return r.stdout}
+  function run(bin:string,args:string[],input?:string){const r=spawnSync(bin,args,{input,encoding:'utf8',timeout:60000});if(r.error||r.status!==0)throw Error(r.error?.message??r.stderr);return r.stdout}
   try{
     run('initdb',['-D',data,'-A','trust','-U','postgres','--no-instructions']);run('pg_ctl',['-D',data,'-o',`-c listen_addresses= -c unix_socket_directories=${socket} -p ${port}`,'-l',join(root,'postgres.log'),'-w','start']);started=true
     const args=['-X','-v','ON_ERROR_STOP=1','-h',socket,'-p',port,'-U','postgres','-d','postgres'];const sql=(s:string)=>run('psql',args,s)
