@@ -469,6 +469,7 @@ describe('SECURITY/HARDENING — User Data Isolation Regression Suite', () => {
       createClient: async () => ({ data: null, error: null }),
       deleteClient: async () => ({ error: null }),
       updateClientStatus: async () => ({ error: null }),
+      updateClientLocation: async () => ({ data: null, error: null }),
       createVisit: async (v) => ({ data: v as any, error: null }),
       updateVisit: async () => ({ data: null, error: null }),
       deleteVisit: async () => ({ error: null }),
@@ -558,6 +559,7 @@ describe('SECURITY/HARDENING — User Data Isolation Regression Suite', () => {
       createClient: async (c) => ({ data: { id: 'c-new-b', ...c } as any, error: null }),
       deleteClient: async () => ({ error: null }),
       updateClientStatus: async () => ({ error: null }),
+      updateClientLocation: async () => ({ data: null, error: null }),
       createVisit: async (v) => {
         persistedVisit = v
         return { data: { id: 'v-new-b', ...v } as any, error: null }

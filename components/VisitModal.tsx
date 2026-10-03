@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useApp } from '@/contexts/AppContext'
-import { STATUS_DEFS, todayISO, normalize, type Visit } from '@/lib/types'
-import { findDuplicateClient, evaluateModalSaveResult } from '@/lib/lifecycle'
+import { STATUS_DEFS, todayISO, type Visit } from '@/lib/types'
+import { findDuplicateClient, evaluateModalSaveResult, isValidCoordinates, type AttachedVisitLocation, type NearbyClient } from '@/lib/lifecycle'
 import {
   isLocationFresh,
   isAccuracyPoor,
@@ -39,6 +39,9 @@ export default function VisitModal() {
   const [attachAnyway, setAttachAnyway] = useState(false)
   const [isRefreshingLoc, setIsRefreshingLoc] = useState(false)
   const [locNotice, setLocNotice] = useState<string | null>(null)
+  const [nearbyCandidates, setNearbyCandidates] = useState<NearbyClient[]>([])
+  const [pendingNearbyKey, setPendingNearbyKey] = useState<string | null>(null)
+  const [approvedNearbyKey, setApprovedNearbyKey] = useState<string | null>(null)
 
   const isEdit = !!editingVisit
 
@@ -92,6 +95,9 @@ export default function VisitModal() {
     setShowDropdown(false)
     setError('')
     setIsVisitPersisted(false)
+    setNearbyCandidates([])
+    setPendingNearbyKey(null)
+    setApprovedNearbyKey(null)
   }, [visitModalOpen, editingVisit?.id, visitModalDate, activeClient, clients])
 
   if (!visitModalOpen) return null
@@ -133,6 +139,7 @@ export default function VisitModal() {
     }
 
     let finalLocationUrl: string | null = locationUrl || null
+    let attachedLocation: AttachedVisitLocation | null = null
 
     if (attachLocation) {
       let locToAttach = currentLocation
@@ -156,6 +163,10 @@ export default function VisitModal() {
         currentLocation: locToAttach,
         manualLocationUrl: locationUrl,
       })
+      if (locToAttach && isLocationFresh(locToAttach.timestamp) && isValidCoordinates(locToAttach.latitude, locToAttach.longitude)
+        && (!isAccuracyPoor(locToAttach.accuracy) || attachAnyway)) {
+        attachedLocation = { location: locToAttach, acknowledgedPoorAccuracy: attachAnyway }
+      }
     }
 
     const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
@@ -166,8 +177,20 @@ export default function VisitModal() {
       statusi,
       shenime: shenime || null,
     }
-    const res = await upsertVisit(payload, editingVisit?.id, { intent: 'leave' })
+    const nearbyKey = attachedLocation ? JSON.stringify([name, attachedLocation.location.latitude, attachedLocation.location.longitude]) : null
+    const res = await upsertVisit(payload, editingVisit?.id, { intent: 'leave' }, {
+      attachedLocation,
+      allowNewAtNearbyLocation: nearbyKey != null && approvedNearbyKey === nearbyKey,
+    })
     setSaving(false)
+    if (res.kind === 'decision_required') {
+      setNearbyCandidates(res.candidates)
+      setPendingNearbyKey(nearbyKey)
+      setApprovedNearbyKey(null)
+      return
+    }
+    setNearbyCandidates([])
+    setPendingNearbyKey(null)
     const outcome = evaluateModalSaveResult(res)
     if (outcome.action === 'close_modal') {
       closeVisitModal()
@@ -196,7 +219,12 @@ export default function VisitModal() {
     setClientId(id)
     setSearch(name)
     setShowDropdown(false)
+    setNearbyCandidates([])
+    setPendingNearbyKey(null)
+    setApprovedNearbyKey(null)
   }
+
+  const matchedClient = clientId ? clients.find(c => c.id === clientId) : findDuplicateClient(clients, search)
 
   // Layout wraps this in modal-overlay-center — just return the card
   return (
@@ -230,7 +258,7 @@ export default function VisitModal() {
             type="text"
             value={search}
             placeholder="Kërko biznesin…"
-            onChange={e => { setSearch(e.target.value); setClientId(''); setShowDropdown(true) }}
+            onChange={e => { setSearch(e.target.value); setClientId(''); setShowDropdown(true); setNearbyCandidates([]); setPendingNearbyKey(null); setApprovedNearbyKey(null) }}
             onFocus={() => search.length >= 1 && setShowDropdown(true)}
             autoComplete="off"
           />
@@ -255,7 +283,32 @@ export default function VisitModal() {
                 : 'Biznes i ri — do të regjistrohet automatikisht si klient me këtë vizitë'}
             </div>
           )}
+          {nearbyCandidates.length > 0 && !clientId && (
+            <div className="visit-nearby" role="alert">
+              <strong>Ekziston një subjekt pranë këtij lokacioni</strong>
+              {nearbyCandidates.map(({ client, distanceMeters }) => (
+                <div className="visit-nearby-row" key={client.id}>
+                  <div><b>{client.business_name}</b><span>{[client.zone, client.address].filter(Boolean).join(' · ')} · {Math.round(distanceMeters)} m</span></div>
+                  <button type="button" className="btn-loc-subtle" onClick={() => selectClient(client.id, client.business_name)}>Përdor këtë klient</button>
+                </div>
+              ))}
+              <button type="button" className="btn-loc-subtle" onClick={() => {
+                setApprovedNearbyKey(pendingNearbyKey)
+                setNearbyCandidates([])
+                setPendingNearbyKey(null)
+              }}>Vazhdo si biznes i ri</button>
+            </div>
+          )}
+          {approvedNearbyKey && <div className="visit-nearby-note">Biznesi i ri do të ruhet si klient i veçantë.</div>}
         </div>
+
+        {attachLocation && matchedClient && currentLocation && (
+          <div className="visit-nearby-note">
+            {isValidCoordinates(matchedClient.lat, matchedClient.lng)
+              ? 'Vizita do të ruajë vendndodhjen e saj. Lokacioni i klientit nuk do të ndryshojë.'
+              : 'Vendndodhja do të shtohet te ky klient.'}
+          </div>
+        )}
 
         {/* Location Section */}
         <div className="modal-field visit-loc-field">

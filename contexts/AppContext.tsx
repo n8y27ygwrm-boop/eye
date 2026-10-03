@@ -1,6 +1,6 @@
 'use client'
 
-import { calculateNextClientStatus, findDuplicateClient, orchestrateUpsertVisit, type LifecycleDbAdapter, type UpsertVisitResult } from '@/lib/lifecycle'
+import { calculateNextClientStatus, findDuplicateClient, orchestrateUpsertVisit, type AttachedVisitLocation, type LifecycleDbAdapter, type UpsertVisitResult } from '@/lib/lifecycle'
 
 import {
   createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore,
@@ -54,7 +54,8 @@ type AppCtx = {
   upsertVisit: (
     payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
     editingId?: string,
-    actionPlan?: VisitActionPlan
+    actionPlan?: VisitActionPlan,
+    locationOptions?: { attachedLocation?: AttachedVisitLocation | null; allowNewAtNearbyLocation?: boolean }
   ) => Promise<UpsertVisitResult>
   deleteVisit: (id: string) => Promise<{ ok: boolean; error?: string }>
 
@@ -487,7 +488,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const upsertVisit = useCallback(async (
     payload: Omit<Visit, "id" | "created_at" | "updated_at">,
     editingId?: string,
-    actionPlan: VisitActionPlan = { intent: 'leave' }
+    actionPlan: VisitActionPlan = { intent: 'leave' },
+    locationOptions?: { attachedLocation?: AttachedVisitLocation | null; allowNewAtNearbyLocation?: boolean }
   ): Promise<UpsertVisitResult> => {
     if (upsertInProgressRef.current) {
       return { ok: false, kind: "failure", error: "Një veprim është në proces. Ju lutem prisni." }
@@ -522,8 +524,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return { error }
         },
         updateClientStatus: async (clientId, status, updatedAt) => {
-          const { error } = await supabase.from("clients").update({ status, updated_at: updatedAt }).eq("id", clientId)
+          const { error } = await supabase.from("clients").update({ status, updated_at: updatedAt }).eq("id", clientId).eq('owner_user_id', ownerUserId)
           return { error }
+        },
+        updateClientLocation: async (client, location) => {
+          let query = supabase.from('clients').update(location).eq('id', client.id).eq('owner_user_id', ownerUserId)
+          query = client.lat == null ? query.is('lat', null) : query.eq('lat', client.lat)
+          query = client.lng == null ? query.is('lng', null) : query.eq('lng', client.lng)
+          const { data, error } = await query.select().maybeSingle()
+          return { data: data as Client | null, error }
         },
         createVisit: async visit => {
           const visitPayload = {
@@ -549,6 +558,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         clients,
         adapter,
         nowISO,
+        attachedLocation: locationOptions?.attachedLocation,
+        allowNewAtNearbyLocation: locationOptions?.allowNewAtNearbyLocation,
       })
 
       if (result.kind === "success") {
@@ -558,6 +569,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (prev.some(c => c.id === newCl.id)) return prev
             return [...prev, newCl].sort((a, b) => a.business_name.localeCompare(b.business_name))
           })
+        }
+        if (result.updatedClient) {
+          const updated = result.updatedClient
+          setClients(prev => prev.map(c => c.id === updated.id ? updated : c))
+          setActiveClient(prev => prev?.id === updated.id ? updated : prev)
         }
         if (result.clientStatusUpdated && result.newStatus && (payload.client_id || result.data.client_id)) {
           const clId = payload.client_id || result.data.client_id!
@@ -598,6 +614,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })
         }
         toast(result.message, "warning")
+        // Compensation may have left a status change without a visit; reload the server truth.
+        await loadClients()
       }
 
       return result
@@ -605,7 +623,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertInProgressRef.current = false
       setSyncing(false)
     }
-  }, [clients, toast, operationalActions])
+  }, [clients, toast, operationalActions, loadClients])
 
   // ── Delete a visit ────────────────────────────────────────────────────────
   const deleteVisit = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
