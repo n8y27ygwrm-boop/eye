@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef, useReducer } from 'react'
 import { useApp } from '@/contexts/AppContext'
 import { STATUS_DEFS, todayISO, type Visit } from '@/lib/types'
-import { findDuplicateClient, evaluateModalSaveResult, isValidCoordinates, type AttachedVisitLocation } from '@/lib/lifecycle'
+import { findDuplicateClient, evaluateModalSaveResult, isValidCoordinates } from '@/lib/lifecycle'
+import { saveVisitWithLocation } from '@/lib/location/visit-save'
 import { nearbyDecisionReducer, emptyNearbyDecisionState } from '@/lib/nearby-decision'
 import {
   isLocationFresh,
   isAccuracyPoor,
   formatAccuracy,
   generateGoogleMapsUrl,
-  resolveVisitLocationUrl,
 } from '@/lib/location/utils'
 
 export default function VisitModal() {
@@ -128,6 +128,7 @@ export default function VisitModal() {
     if (!name || !date) return
     setSaving(true)
     setError('')
+    setLocNotice(null)
 
     // Duplicate safety resolution: if no client selected but name matches an existing client
     let resolvedClientId = clientId || null
@@ -138,50 +139,41 @@ export default function VisitModal() {
       }
     }
 
-    let finalLocationUrl: string | null = locationUrl || null
-    let attachedLocation: AttachedVisitLocation | null = null
-
-    if (attachLocation) {
-      let locToAttach = currentLocation
-      const isFresh = locToAttach ? isLocationFresh(locToAttach.timestamp) : false
-
-      if (!isFresh) {
+    const save = await saveVisitWithLocation({
+      attachLocation,
+      attachAnyway,
+      currentLocation,
+      manualLocationUrl: locationUrl || null,
+      refreshLocation: async () => {
         setIsRefreshingLoc(true)
-        const refreshed = await refreshLocation()
-        setIsRefreshingLoc(false)
-        if (refreshed) {
-          locToAttach = refreshed
-        } else {
-          locToAttach = null
-          setLocNotice('Vendndodhja nuk u rifreskua. Vizita po ruhet pa koordinata.')
+        try {
+          return await refreshLocation()
+        } finally {
+          setIsRefreshingLoc(false)
         }
-      }
-
-      finalLocationUrl = resolveVisitLocationUrl({
-        attachLocation,
-        attachAnyway,
-        currentLocation: locToAttach,
-        manualLocationUrl: locationUrl,
-      })
-      if (locToAttach && isLocationFresh(locToAttach.timestamp) && isValidCoordinates(locToAttach.latitude, locToAttach.longitude)
-        && (!isAccuracyPoor(locToAttach.accuracy) || attachAnyway)) {
-        attachedLocation = { location: locToAttach, acknowledgedPoorAccuracy: attachAnyway }
-      }
-    }
-
-    const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
-      client_id: resolvedClientId,
-      visit_date: date,
-      business_name: resolvedClientId ? (clients.find(c => c.id === resolvedClientId)?.business_name ?? name) : name,
-      location_url: finalLocationUrl,
-      statusi,
-      shenime: shenime || null,
-    }
-    const res = await upsertVisit(payload, editingVisit?.id, { intent: 'leave' }, {
-      attachedLocation,
-      approvedNearbyDecision: nearbyDecision.approved,
+      },
+      persist: (finalLocationUrl, attachedLocation) => {
+        const payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'> = {
+          client_id: resolvedClientId,
+          visit_date: date,
+          business_name: resolvedClientId ? (clients.find(c => c.id === resolvedClientId)?.business_name ?? name) : name,
+          location_url: finalLocationUrl,
+          statusi,
+          shenime: shenime || null,
+        }
+        return upsertVisit(payload, editingVisit?.id, { intent: 'leave' }, {
+          attachedLocation,
+          approvedNearbyDecision: nearbyDecision.approved,
+        })
+      },
     })
     setSaving(false)
+    if (save.kind === 'location_error') {
+      setError(save.message)
+      setLocNotice(save.message)
+      return
+    }
+    const res = save.value
     if (res.kind === 'decision_required') {
       dispatchNearbyDecision({ type: 'required', businessName: name, candidates: res.candidates })
       return

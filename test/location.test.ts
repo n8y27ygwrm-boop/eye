@@ -16,6 +16,7 @@ import {
   LOCATION_DISMISSED_KEY,
 } from '../lib/location/utils'
 import type { CurrentLocation, LocationStatus } from '../lib/location/types'
+import { LOCATION_REFRESH_ERROR, saveVisitWithLocation } from '../lib/location/visit-save'
 
 describe('Location Foundation Architecture & Boundaries for EYE', () => {
   const root = path.resolve(process.cwd())
@@ -131,29 +132,36 @@ describe('Location Foundation Architecture & Boundaries for EYE', () => {
     const staleTimestamp = now - 130_000 // 2 minutes 10 seconds ago
     assert.equal(isLocationFresh(staleTimestamp, FRESHNESS_THRESHOLD_MS, now), false)
 
-    // Verify VisitModal contains freshness check before attaching
+    // Verify the save gate checks freshness before attaching or persisting
     const visitModalFile = fs.readFileSync(path.join(root, 'components/VisitModal.tsx'), 'utf8')
+    const visitSaveFile = fs.readFileSync(path.join(root, 'lib/location/visit-save.ts'), 'utf8')
     assert.match(
-      visitModalFile,
-      /isLocationFresh\(\s*locToAttach\.timestamp\s*\)/,
-      'VisitModal must check isLocationFresh before attaching location'
+      visitSaveFile,
+      /isLocationFresh\(location\.timestamp\)/,
+      'Visit save gate must check freshness before attaching location'
     )
     assert.match(
       visitModalFile,
-      /const\s+refreshed\s*=\s*await\s+refreshLocation\(\)/,
-      'VisitModal must request refreshLocation if location is stale'
+      /return await refreshLocation\(\)/,
+      'VisitModal must request refreshLocation through the save gate'
     )
   })
 
   // ── TEST G: Location attachment disabled -> Visit saves without location_url
   test('G. When location attachment is disabled, Visit saves without attaching live GPS', () => {
     const visitModalFile = fs.readFileSync(path.join(root, 'components/VisitModal.tsx'), 'utf8')
+    const visitSaveFile = fs.readFileSync(path.join(root, 'lib/location/visit-save.ts'), 'utf8')
 
-    // Verify attachLocation controls whether live GPS coordinates are injected
+    // Verify the modal passes the explicit choice into the save gate, which persists no GPS when off.
     assert.match(
       visitModalFile,
-      /if\s*\(\s*attachLocation\s*\)\s*\{/,
-      'VisitModal must only attach coordinates when attachLocation is true'
+      /saveVisitWithLocation\(\{\s*attachLocation,/,
+      'VisitModal must pass the attachLocation choice to the save gate'
+    )
+    assert.match(
+      visitSaveFile,
+      /if \(!attachLocation\) \{\s*return \{ kind: 'saved', value: await persist\(manualLocationUrl, null\) \}/,
+      'Disabling attachment must persist without live GPS'
     )
     assert.match(
       visitModalFile,
@@ -404,5 +412,125 @@ describe('Location Foundation Architecture & Boundaries for EYE', () => {
       /if\s*\(\s*mapped\.status\s*===\s*'denied'\s*\)[\s\S]*?watchIdRef\.current\s*=\s*null/,
       'Error handler must reset watchIdRef.current to null after permission denial'
     )
+  })
+})
+
+describe('Visit location save gate', () => {
+  const fresh = (): CurrentLocation => ({ latitude: 41.3275, longitude: 19.8187, accuracy: 12, timestamp: Date.now() })
+  const stale = (): CurrentLocation => ({ ...fresh(), timestamp: Date.now() - 130_000 })
+
+  test('Attach ON and failed refresh blocks all persistence while leaving a visible retry error in the modal', async () => {
+    let writes = 0
+    const result = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: stale(), manualLocationUrl: null,
+      refreshLocation: async () => null,
+      persist: async () => { writes++; return 'saved' },
+    })
+    assert.equal(result.kind, 'location_error')
+    if (result.kind === 'location_error') assert.equal(result.message, LOCATION_REFRESH_ERROR)
+    assert.equal(writes, 0)
+    const modal = fs.readFileSync(path.resolve(process.cwd(), 'components/VisitModal.tsx'), 'utf8')
+    assert.match(modal, /if \(save\.kind === 'location_error'\) \{\s*setError\(save\.message\)[\s\S]*?return\s*\}/)
+    assert.match(modal, /\{error && \([\s\S]*?className="modal-err"/)
+  })
+
+  test('Attach OFF deliberately permits a visit without GPS', async () => {
+    const calls: Array<{ url: string | null; attached: unknown }> = []
+    const result = await saveVisitWithLocation({
+      attachLocation: false, attachAnyway: false, currentLocation: null, manualLocationUrl: null,
+      refreshLocation: async () => { throw new Error('refresh must not run') },
+      persist: async (url, attached) => { calls.push({ url, attached }); return 'saved' },
+    })
+    assert.deepEqual(calls, [{ url: null, attached: null }])
+    assert.deepEqual(result, { kind: 'saved', value: 'saved' })
+  })
+
+  test('Continue-as-new approval cannot bypass a failed GPS refresh', async () => {
+    const approvedNearbyDecision = { businessName: 'QA New', candidateIds: ['nearby'] }
+    let upsertCalls = 0
+    const result = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: stale(), manualLocationUrl: null,
+      refreshLocation: async () => null,
+      persist: async () => { void approvedNearbyDecision; upsertCalls++; return 'created' },
+    })
+    assert.equal(result.kind, 'location_error')
+    assert.equal(upsertCalls, 0)
+  })
+
+  test('An invalid structured refresh result also blocks persistence', async () => {
+    let writes = 0
+    const result = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: null, manualLocationUrl: null,
+      refreshLocation: async () => ({ ...fresh(), latitude: Number.NaN }),
+      persist: async () => { writes++; return 'saved' },
+    })
+    assert.equal(result.kind, 'location_error')
+    assert.equal(writes, 0)
+  })
+
+  test('A rejected GPS refresh also clears the save path without persisting', async () => {
+    let writes = 0
+    const result = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: stale(), manualLocationUrl: null,
+      refreshLocation: async () => { throw new Error('GPS unavailable') },
+      persist: async () => { writes++; return 'saved' },
+    })
+    assert.equal(result.kind, 'location_error')
+    assert.equal(writes, 0)
+  })
+
+  test('Retry after GPS failure reaches persistence once with valid structured coordinates', async () => {
+    let writes = 0
+    let gpsAvailable = false
+    const save = () => saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: stale(), manualLocationUrl: null,
+      refreshLocation: async () => gpsAvailable ? fresh() : null,
+      persist: async (url, attached) => {
+        writes++
+        assert.equal(url, 'https://www.google.com/maps?q=41.3275,19.8187')
+        assert.equal(attached?.location.latitude, 41.3275)
+        return 'saved'
+      },
+    })
+    assert.equal((await save()).kind, 'location_error')
+    assert.equal(writes, 0)
+    gpsAvailable = true
+    assert.deepEqual(await save(), { kind: 'saved', value: 'saved' })
+    assert.equal(writes, 1)
+  })
+
+  test('Existing unlocated client cannot get a locationless visit or coordinate update after refresh failure', async () => {
+    let visitWrites = 0
+    let clientUpdates = 0
+    const result = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: null, manualLocationUrl: null,
+      refreshLocation: async () => null,
+      persist: async () => { visitWrites++; clientUpdates++; return 'saved' },
+    })
+    assert.equal(result.kind, 'location_error')
+    assert.equal(visitWrites, 0)
+    assert.equal(clientUpdates, 0)
+  })
+
+  test('Poor GPS accuracy still requires explicit attach-anyway and then saves', async () => {
+    const poor = { ...fresh(), accuracy: 400 }
+    let writes = 0
+    const persist = async (_url: string | null, attached: { acknowledgedPoorAccuracy: boolean } | null) => {
+      writes++
+      assert.equal(attached?.acknowledgedPoorAccuracy, true)
+      return 'saved'
+    }
+    const blocked = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: false, currentLocation: poor, manualLocationUrl: null,
+      refreshLocation: async () => { throw new Error('fresh GPS should not refresh') }, persist,
+    })
+    assert.equal(blocked.kind, 'location_error')
+    assert.equal(writes, 0)
+    const approved = await saveVisitWithLocation({
+      attachLocation: true, attachAnyway: true, currentLocation: poor, manualLocationUrl: null,
+      refreshLocation: async () => { throw new Error('fresh GPS should not refresh') }, persist,
+    })
+    assert.deepEqual(approved, { kind: 'saved', value: 'saved' })
+    assert.equal(writes, 1)
   })
 })
