@@ -16,6 +16,7 @@ import {
 import type { Client, Visit } from "../lib/types"
 import { generateGoogleMapsUrl } from "../lib/location/utils"
 import { groupClientsByCoordinates, isUnlocated } from "../lib/location/group"
+import { emptyNearbyDecisionState, makeNearbyDecision, nearbyDecisionReducer } from "../lib/nearby-decision"
 
 const mockClients: Client[] = [
   {
@@ -270,9 +271,74 @@ describe('Visit GPS → client location → map', () => {
   it('8. explicit continue-as-new creates a distinct client at a shared coordinate', async () => {
     const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
     const db = adapter()
-    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, allowNewAtNearbyLocation: true })
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: makeNearbyDecision('New Shop', [{ client: existing, distanceMeters: 0 }]) })
     assert.equal(result.kind, 'success'); assert.equal(db.calls.createClient, 1)
     assert.equal(result.data.client_id, 'new')
+  })
+
+  it('approval survives GPS jitter when the nearby candidate set is unchanged', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const db = adapter()
+    const first = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps })
+    assert.equal(first.kind, 'decision_required')
+    if (first.kind !== 'decision_required') return
+    const warning = nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: first.candidates })
+    const approved = nearbyDecisionReducer(warning, { type: 'approve' })
+    const jittered: AttachedVisitLocation = { ...gps, location: { ...gps.location, latitude: gps.location.latitude + 0.00002, longitude: gps.location.longitude - 0.00002 } }
+    const second = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: jittered, approvedNearbyDecision: approved.approved })
+    assert.equal(second.kind, 'success')
+    assert.equal(db.calls.createClient, 1)
+    assert.equal(db.calls.createVisit, 1)
+  })
+
+  it('changing the business name invalidates continue-as-new approval', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const approved = nearbyDecisionReducer(nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: [{ client: existing, distanceMeters: 0 }] }), { type: 'approve' })
+    const changed = nearbyDecisionReducer(approved, { type: 'reset' }) // Business input onChange
+    assert.equal(changed.approved, null)
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('Different Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: approved.approved })
+    assert.equal(result.kind, 'decision_required') // Rejected even if stale state were passed through.
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('selecting an existing client clears approval and uses that client', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const approved = nearbyDecisionReducer(nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: [{ client: existing, distanceMeters: 0 }] }), { type: 'approve' })
+    const selected = nearbyDecisionReducer(approved, { type: 'reset' }) // selectClient
+    assert.equal(selected.approved, null)
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload(existing.business_name, existing.id), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: selected.approved })
+    assert.equal(result.kind, 'success')
+    assert.equal(result.data.client_id, existing.id)
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('closing and reopening the modal clears continue-as-new approval', async () => {
+    const existing = client('neighbor', 'Other Shop', { lat: 41.3275, lng: 19.8187 })
+    const approved = nearbyDecisionReducer(nearbyDecisionReducer(emptyNearbyDecisionState, { type: 'required', businessName: 'New Shop', candidates: [{ client: existing, distanceMeters: 0 }] }), { type: 'approve' })
+    const closed = nearbyDecisionReducer(approved, { type: 'reset' }) // Modal close
+    const reopened = nearbyDecisionReducer(closed, { type: 'reset' }) // Modal open
+    assert.equal(reopened.approved, null)
+    const db = adapter()
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: reopened.approved })
+    assert.equal(result.kind, 'decision_required')
+    assert.equal(db.calls.createClient, 0)
+  })
+
+  it('a materially changed nearby candidate set requires a new decision', async () => {
+    const first = client('first', 'First', { lat: 41.3275, lng: 19.8187 })
+    const second = client('second', 'Second', { lat: 41.32782, lng: 19.8187 })
+    const db = adapter()
+    const initial = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [first, second], adapter: db.api, attachedLocation: gps })
+    assert.equal(initial.kind, 'decision_required')
+    if (initial.kind !== 'decision_required') return
+    assert.deepEqual(initial.candidates.map(candidate => candidate.client.id), ['first'])
+    const jittered: AttachedVisitLocation = { ...gps, location: { ...gps.location, latitude: 41.32756 } }
+    const result = await orchestrateUpsertVisit({ payload: payload('New Shop'), clients: [first, second], adapter: db.api, attachedLocation: jittered, approvedNearbyDecision: makeNearbyDecision('New Shop', initial.candidates) })
+    assert.equal(result.kind, 'decision_required')
+    if (result.kind === 'decision_required') assert.deepEqual(result.candidates.map(candidate => candidate.client.id), ['first', 'second'])
+    assert.equal(db.calls.createClient, 0)
   })
 
   it('9. foreign owner cannot match by name, proximity, or explicit id', async () => {
@@ -333,7 +399,7 @@ describe('Visit GPS → client location → map', () => {
   it('14. two businesses can remain distinct at the same coordinate after confirmation', async () => {
     const existing = client('first', 'First', { lat: 41.3275, lng: 19.8187 })
     const db = adapter()
-    const result = await orchestrateUpsertVisit({ payload: payload('Second'), clients: [existing], adapter: db.api, attachedLocation: gps, allowNewAtNearbyLocation: true })
+    const result = await orchestrateUpsertVisit({ payload: payload('Second'), clients: [existing], adapter: db.api, attachedLocation: gps, approvedNearbyDecision: makeNearbyDecision('Second', [{ client: existing, distanceMeters: 0 }]) })
     assert.equal(result.kind, 'success')
     assert.equal(groupClientsByCoordinates([existing, result.client!]).get('41.3275,19.8187')?.length, 2)
   })

@@ -1,6 +1,8 @@
 import { normalize, type Client, type Visit, STATUS_DEFS } from "./types"
 import type { CurrentLocation } from "./location/types"
 import { generateGoogleMapsUrl, isAccuracyPoor, isLocationFresh } from "./location/utils"
+import { matchesNearbyDecision, type NearbyClient, type NearbyDecision } from './nearby-decision'
+export type { NearbyClient } from './nearby-decision'
 
 export type ClientStatusKey = typeof STATUS_DEFS[number]["key"]
 
@@ -112,8 +114,6 @@ export type AttachedVisitLocation = {
   location: CurrentLocation
   acknowledgedPoorAccuracy: boolean
 }
-
-export type NearbyClient = { client: Client; distanceMeters: number }
 
 export function isValidCoordinates(latitude: number | null, longitude: number | null): boolean {
   return latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
@@ -261,7 +261,7 @@ export async function orchestrateUpsertVisit(params: {
   adapter: LifecycleDbAdapter
   nowISO?: () => string
   attachedLocation?: AttachedVisitLocation | null
-  allowNewAtNearbyLocation?: boolean
+  approvedNearbyDecision?: NearbyDecision | null
 }): Promise<UpsertVisitResult> {
   const {
     payload,
@@ -270,7 +270,7 @@ export async function orchestrateUpsertVisit(params: {
     adapter,
     nowISO = () => new Date().toISOString(),
     attachedLocation,
-    allowNewAtNearbyLocation = false,
+    approvedNearbyDecision,
   } = params
   if (attachedLocation && (!isValidCoordinates(attachedLocation.location.latitude, attachedLocation.location.longitude)
     || !isLocationFresh(attachedLocation.location.timestamp)
@@ -279,7 +279,7 @@ export async function orchestrateUpsertVisit(params: {
   }
   const identity = resolveVisitClient({ clients, clientId: payload.client_id, businessName: payload.business_name ?? '', ownerUserId: payload.owner_user_id, location: attachedLocation })
   if (identity.kind === 'invalid') return { ok: false, kind: 'failure', error: 'Klienti i zgjedhur nuk ekziston ose nuk ju përket juve.' }
-  if (!editingId && identity.kind === 'nearby' && !allowNewAtNearbyLocation) {
+  if (!editingId && identity.kind === 'nearby' && !matchesNearbyDecision(approvedNearbyDecision, payload.business_name ?? '', identity.candidates)) {
     return { ok: false, kind: 'decision_required', candidates: identity.candidates, error: 'Zgjidhni klientin pranë ose konfirmoni biznes të ri.' }
   }
   const matchedClient = identity.kind === 'existing' ? identity.client : undefined

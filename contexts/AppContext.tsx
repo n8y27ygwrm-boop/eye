@@ -1,6 +1,7 @@
 'use client'
 
 import { calculateNextClientStatus, findDuplicateClient, orchestrateUpsertVisit, type AttachedVisitLocation, type LifecycleDbAdapter, type UpsertVisitResult } from '@/lib/lifecycle'
+import type { NearbyDecision } from '@/lib/nearby-decision'
 
 import {
   createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore,
@@ -55,7 +56,7 @@ type AppCtx = {
     payload: Omit<Visit, 'id' | 'created_at' | 'updated_at'>,
     editingId?: string,
     actionPlan?: VisitActionPlan,
-    locationOptions?: { attachedLocation?: AttachedVisitLocation | null; allowNewAtNearbyLocation?: boolean }
+    locationOptions?: { attachedLocation?: AttachedVisitLocation | null; approvedNearbyDecision?: NearbyDecision | null }
   ) => Promise<UpsertVisitResult>
   deleteVisit: (id: string) => Promise<{ ok: boolean; error?: string }>
 
@@ -489,7 +490,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     payload: Omit<Visit, "id" | "created_at" | "updated_at">,
     editingId?: string,
     actionPlan: VisitActionPlan = { intent: 'leave' },
-    locationOptions?: { attachedLocation?: AttachedVisitLocation | null; allowNewAtNearbyLocation?: boolean }
+    locationOptions?: { attachedLocation?: AttachedVisitLocation | null; approvedNearbyDecision?: NearbyDecision | null }
   ): Promise<UpsertVisitResult> => {
     if (upsertInProgressRef.current) {
       return { ok: false, kind: "failure", error: "Një veprim është në proces. Ju lutem prisni." }
@@ -559,7 +560,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         adapter,
         nowISO,
         attachedLocation: locationOptions?.attachedLocation,
-        allowNewAtNearbyLocation: locationOptions?.allowNewAtNearbyLocation,
+        approvedNearbyDecision: locationOptions?.approvedNearbyDecision,
       })
 
       if (result.kind === "success") {
