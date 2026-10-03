@@ -1,6 +1,6 @@
 # EYE
 
-This local repository contains the verified candidate source of record for EYE. The application baseline was recovered from the exact Phase 11 production deployment source; historical application files were not copied over it. GitHub `main` remains historical until this recovery branch is published and merged, so it must not be used as a production source yet.
+GitHub [`main`](https://github.com/n8y27ygwrm-boop/eye) is the authoritative source of record for EYE. Its application baseline was recovered from the exact Phase 11 production deployment source; historical application files were not copied over it.
 
 ## Development and verification
 
@@ -18,12 +18,12 @@ Do not point tests at production. The test suite uses fixtures and temporary loc
 
 ## Release rule
 
-After the recovery branch is published and merged, deploy production only from a clean, reviewed revision of the authoritative GitHub `main` branch. Before deployment, record the full Git commit SHA and confirm the working tree is clean. After deployment, record the Vercel deployment ID and the exact source revision used in the release log. Confirm the production alias points to that deployment. Do not use a separate local source folder as a release source.
+Deploy production only from a clean, reviewed revision of the authoritative GitHub `main` branch. Before deployment, record the full Git commit SHA and confirm the working tree is clean. After deployment, record the Vercel deployment ID and the exact source revision used in the release log. Confirm the production alias points to that deployment. Do not use a separate local source folder as a release source.
 
-The current deployed Phase 11 release predates this rule:
+Current production release:
 
-| Production alias | Deployment ID | Application source revision | Source method |
+| Production alias | Deployment ID | Git ref and revision | Source method |
 | --- | --- | --- | --- |
-| `eye-savvyedge.vercel.app` | `dpl_8JhPYjokk9JALrG1Jr1rnSqZo5hD` | `d15bc8a` (application tree; `eba23b9` added a test only) | Vercel CLI source upload |
+| `eye-savvyedge.vercel.app` | `dpl_7havXcyT2LCakKnTkwVfVASkXsvE` | `main` at `198ed7f143a13201cf660ebc085b709c448f2376` | Vercel Git deployment |
 
-The Phase 12 repository recovery does not deploy or change production. See [recovery notes](docs/phase12-recovery.md) for provenance and test classification.
+See [recovery notes](docs/phase12-recovery.md) for provenance and test classification.
