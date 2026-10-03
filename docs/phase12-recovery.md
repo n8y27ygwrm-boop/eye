@@ -40,4 +40,8 @@ The first concurrent full run passed 286/287 tests; the local PostgreSQL complet
 
 ## Publication status
 
-The local `codex/phase12` branch includes the historical GitHub `main` lineage through a merge that preserves the production-aligned tree exactly. Automatic approval review rejected pushing the production-aligned source to the existing GitHub repository because the exact destination and payload were not expressly authorized. No remote branch, pull request, or GitHub CI run was created. Publishing and merging this branch remain required before GitHub `main` can be called authoritative.
+The local `codex/phase12` branch includes the historical GitHub `main` lineage through a merge that preserves the production-aligned tree exactly. An initial automatic approval review rejected publication because the exact destination and payload were not expressly authorized. The branch was subsequently published and pull request #1 was created.
+
+GitHub CI initially exposed environment portability issues in the recovered integration tests. The test runner dependency on a local command wrapper was removed, and CI PostgreSQL was aligned with the authoritative local PostgreSQL 15 runtime without weakening the SQL fixture or assertions. The full 287-test suite and required checks then passed. Pull request #1 merged into `main` at `198ed7f143a13201cf660ebc085b709c448f2376`; CI on `main` succeeded. GitHub `main` is now authoritative.
+
+Vercel deployed that Git revision from `main` to production as `dpl_7havXcyT2LCakKnTkwVfVASkXsvE`. The deployment is READY, and `eye-savvyedge.vercel.app` points to it. No application runtime files were replaced by historical source during repository recovery.
