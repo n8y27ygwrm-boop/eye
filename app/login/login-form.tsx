@@ -63,17 +63,18 @@ export default function LoginForm() {
   }
 
   return (
-    <main className="w-full min-h-[100dvh] bg-[#0d0e10] relative z-10 flex overflow-x-hidden">
-      <div className="relative w-full min-h-[100dvh] flex flex-col lg:flex-row overflow-x-hidden select-none bg-[#0d0e10]">
+    <main className="relative isolate min-h-[100dvh] overflow-x-hidden bg-[#0d0e10] text-[#f5f3ef]">
+      <div className="relative min-h-[100dvh] overflow-x-hidden">
         {/* Territory Map Layer (Calm Architectural Field Visual) */}
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
           {/* Ambient Lighting & Soft Edge Vignette */}
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0d0e10]/30 via-transparent to-[#0d0e10]/90 z-10" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0d0e10]/50 via-transparent to-[#0d0e10]/70 z-10" />
+          <div className="absolute inset-0 z-10 bg-gradient-to-r from-[#0d0e10]/80 via-[#0d0e10]/40 to-[#0d0e10]/35" />
+          <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#0d0e10]/25 via-transparent to-[#0d0e10]/70" />
 
           {/* Clean Territory Grid & Geometry */}
           <svg
-            className="w-[130%] h-[130%] -top-[15%] -left-[10%] absolute text-[#26282b]/60"
+            aria-hidden="true"
+            className="absolute -right-[85%] -top-[45%] h-[110%] w-[185%] text-[#3b3d41]/70 opacity-70 sm:-right-[35%] sm:top-[-5%] sm:w-[145%] lg:-right-[7%] lg:-top-[12%] lg:h-[125%] lg:w-[105%] lg:opacity-80"
             fill="none"
             viewBox="0 0 1600 1000"
             xmlns="http://www.w3.org/2000/svg"
@@ -178,58 +179,38 @@ export default function LoginForm() {
           </svg>
         </div>
 
-        {/* Left Territory Context (Minimal, Quiet, Editorial) */}
-        <div className="relative z-10 flex lg:flex-1 flex-col justify-between p-4 lg:p-12 pointer-events-none">
-          {/* Calm Territory Badge */}
-          <div className="flex items-center gap-3 pt-1">
-            <div className="flex items-center justify-center w-2 h-2 rounded-full bg-[#c93b3b] ring-4 ring-[#c93b3b]/20" />
-            <span className="text-[12px] text-[#f5f3ef] font-medium tracking-tight font-sans">
-              FIELD SALES
-            </span>
-          </div>
-
-          {/* Bottom Region Note */}
-          <div className="hidden lg:flex items-center gap-2 text-[#6b6f79] text-[11px] font-mono tracking-wide">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#26282b]" />
-            <span>TERRITORY WORKSPACE</span>
-          </div>
-        </div>
-
-        {/* Right-Anchored Premium Login Monolith */}
-        <div className="relative z-20 w-full lg:w-[460px] xl:w-[480px] min-h-[calc(100dvh-54px)] lg:min-h-[100dvh] flex flex-col justify-between bg-[#0d0e10]/95 backdrop-blur-xl border-t lg:border-t-0 border-l-0 lg:border-l border-[#26282b]/80 shadow-2xl">
-          {/* Top Brand & Form Section */}
-          <div className="w-full flex flex-col pt-6 sm:pt-10 lg:pt-20 px-6 sm:px-12 lg:px-14">
-            {/* Brand Block */}
-            <div className="flex flex-col">
-              <div className="flex items-baseline gap-2.5">
-                <h1
-                  className="text-[36px] font-bold tracking-tight text-[#f5f3ef]"
-                  style={{ fontFamily: "'Space Grotesk', sans-serif" }}
-                >
-                  EYE
-                </h1>
-                <span className="text-[13px] tracking-normal text-[#8e9199] font-normal">
-                  by SAVVY SYSTEMS
-                </span>
+        <div className="relative z-20 flex min-h-[100dvh] items-center px-4 py-6 sm:px-8 sm:py-10 lg:px-[clamp(56px,10vw,160px)]">
+          <section
+            aria-label="Sign in to EYE"
+            className="mx-auto w-full max-w-[460px] rounded-[22px] border border-[#414247]/80 bg-[#191a1d]/90 px-7 py-8 backdrop-blur-xl sm:px-10 sm:py-10 lg:mx-0"
+            style={{ boxShadow: '0 32px 80px -24px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.04)' }}
+          >
+            <header>
+              <div className="mb-7 flex items-center gap-3">
+                <span className="h-2 w-2 rounded-full bg-[#d15353] ring-[5px] ring-[#d15353]/15" />
+                <span className="text-[11px] font-semibold tracking-[0.18em] text-[#bbbcc1]">FIELD SALES</span>
+                <span className="ml-auto h-px w-12 bg-gradient-to-r from-[#55565b] to-transparent" />
               </div>
-              <p className="mt-1 text-[13px] text-[#6b6f79]">
-                Field Sales Workspace
-              </p>
-            </div>
+              <h1
+                className="text-[48px] font-semibold leading-none tracking-[-0.065em] text-[#f5f3ef] sm:text-[54px]"
+                style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+              >
+                EYE
+              </h1>
+              <p className="mt-2 text-[11px] font-medium tracking-[0.16em] text-[#aaaab0]">by SAVVY SYSTEMS</p>
+              <p className="mt-4 text-[14px] leading-6 text-[#aaabb0]">Field Sales Workspace</p>
+            </header>
 
-            {/* Error Message Callout */}
             {error && (
-              <div className="mt-6 p-3 bg-[#93000a]/20 border border-[#93000a]/50 text-[#ffb4ab] text-[12.5px] rounded flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ffb4ab] flex-shrink-0" />
+              <div className="mt-7 flex items-start gap-2.5 rounded-[10px] border border-[#a94a4a]/50 bg-[#8e2230]/15 px-3.5 py-3 text-[13px] leading-5 text-[#ffb4ab]" role="alert">
+                <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#ffb4ab]" />
                 <span>{error}</span>
               </div>
             )}
 
-            {/* Authentication Form */}
-            <form className="flex flex-col gap-5 mt-8" onSubmit={handleSubmit}>
-              {/* Email Field */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[13px] text-[#a5a7ad] font-medium" htmlFor="email">
+            <form className="mt-8 flex flex-col gap-5" onSubmit={handleSubmit}>
+              <div className="flex flex-col gap-2">
+                <label className="text-[12px] font-medium tracking-[0.02em] text-[#d0d0d3]" htmlFor="email">
                   Email
                 </label>
                 <input
@@ -240,18 +221,15 @@ export default function LoginForm() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="name@company.com"
-                  className="w-full h-10 px-3 bg-[#151618] border border-[#26282b] text-[#f5f3ef] text-[13.5px] placeholder:text-[#6b6f79] rounded focus:outline-none focus:border-[#8E2230] focus:ring-1 focus:ring-[#8E2230] transition-all duration-150"
+                  className="h-[52px] w-full rounded-[10px] border border-[#44454a] bg-[#101114] px-4 text-[14px] text-[#f5f3ef] placeholder:text-[#777980] transition-colors duration-150 focus:border-[#d15353] focus:outline-none focus:ring-[3px] focus:ring-[#d15353]/15"
                 />
               </div>
 
-              {/* Password Field */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex justify-between items-center">
-                  <label className="text-[13px] text-[#a5a7ad] font-medium" htmlFor="password">
-                    Password
-                  </label>
-                </div>
-                <div className="relative flex items-center">
+              <div className="flex flex-col gap-2">
+                <label className="text-[12px] font-medium tracking-[0.02em] text-[#d0d0d3]" htmlFor="password">
+                  Password
+                </label>
+                <div className="relative">
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
@@ -260,74 +238,62 @@ export default function LoginForm() {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    className="w-full h-10 pl-3 pr-10 bg-[#151618] border border-[#26282b] text-[#f5f3ef] text-[13.5px] placeholder:text-[#6b6f79] rounded focus:outline-none focus:border-[#8E2230] focus:ring-1 focus:ring-[#8E2230] transition-all duration-150"
+                    className="h-[52px] w-full rounded-[10px] border border-[#44454a] bg-[#101114] pl-4 pr-14 text-[14px] text-[#f5f3ef] placeholder:text-[#777980] transition-colors duration-150 focus:border-[#d15353] focus:outline-none focus:ring-[3px] focus:ring-[#d15353]/15"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? 'Fshih fjalëkalimin' : 'Shfaq fjalëkalimin'}
-                    className="absolute right-3 text-[#8e9199] hover:text-[#f5f3ef] transition-colors flex items-center focus:outline-none"
+                    className="absolute right-1.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-[7px] text-[#a2a3a9] transition-colors hover:bg-[#292a2f] hover:text-[#f5f3ef] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d15353]"
                   >
                     <EyeToggleIcon open={showPassword} />
                   </button>
                 </div>
               </div>
 
-              {/* Remember Device Option */}
-              <div className="flex items-center pt-0.5">
-                <label className="flex items-center gap-2.5 cursor-pointer group select-none">
+              <label className="flex w-fit cursor-pointer select-none items-center gap-2.5 pt-0.5 text-[13px] text-[#b9bac0] transition-colors hover:text-[#f5f3ef]">
+                <span className="relative flex h-[18px] w-[18px] items-center justify-center">
                   <input
                     type="checkbox"
                     checked={rememberDevice}
                     onChange={e => setRememberDevice(e.target.checked)}
-                    className="sr-only peer"
+                    className="peer h-[18px] w-[18px] cursor-pointer appearance-none rounded-[5px] border border-[#66676c] bg-[#101114] transition-colors checked:border-[#d15353] checked:bg-[#d15353] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d15353]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#191a1d]"
                   />
-                  <div className="w-4 h-4 border border-[#26282b] bg-[#151618] rounded flex items-center justify-center peer-checked:bg-[#f5f3ef] peer-checked:border-[#f5f3ef] transition-colors">
-                    <svg
-                      className="w-3 h-3 text-[#0d0e10] opacity-0 peer-checked:opacity-100 transition-opacity"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
+                  <svg className="pointer-events-none absolute h-3 w-3 text-white opacity-0 transition-opacity peer-checked:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+                <span>Remember this device</span>
+              </label>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="mt-1 flex h-[52px] w-full items-center justify-center rounded-[10px] bg-[#f1efea] text-[14px] font-semibold text-[#141518] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-colors duration-150 hover:bg-white active:bg-[#dedbd5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f1efea] focus-visible:ring-offset-2 focus-visible:ring-offset-[#191a1d] disabled:cursor-wait disabled:opacity-60"
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="h-4 w-4 animate-spin text-[#0d0e10]" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                     </svg>
-                  </div>
-                  <span className="text-[13px] text-[#8e9199] group-hover:text-[#a5a7ad] transition-colors">
-                    Remember this device
+                    <span>Authenticating...</span>
                   </span>
-                </label>
-              </div>
-
-              {/* CTA Button */}
-              <div className="flex flex-col gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full h-10 bg-[#f5f3ef] text-[#0d0e10] hover:bg-white active:bg-[#e3e2e5] text-[13px] font-medium transition-all duration-150 flex items-center justify-center rounded shadow-sm disabled:opacity-60 disabled:cursor-wait"
-                >
-                  {loading ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="animate-spin w-4 h-4 text-[#0d0e10]" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                      </svg>
-                      <span>Authenticating...</span>
-                    </span>
-                  ) : (
-                    <span>Sign in</span>
-                  )}
-                </button>
-              </div>
+                ) : (
+                  <span>Sign in</span>
+                )}
+              </button>
             </form>
-          </div>
 
-          {/* Quiet, Architectural Footer */}
-          <div className="w-full px-8 sm:px-12 lg:px-14 pb-10 pt-8 border-t border-[#26282b]/40 flex items-center justify-between text-[11px] text-[#6b6f79] tracking-wider font-mono">
-            <span>Private workspace</span>
-            <span>SAVVY SYSTEMS</span>
+            <div className="mt-8 flex items-center justify-between border-t border-[#3b3c41] pt-5 font-mono text-[10px] tracking-[0.05em] text-[#898b92]">
+              <span>Private workspace</span>
+              <span>SAVVY SYSTEMS</span>
+            </div>
+          </section>
+
+          <div className="pointer-events-none absolute bottom-8 right-10 hidden items-center gap-2 font-mono text-[11px] tracking-[0.08em] text-[#8a8c92] lg:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#d15353]" />
+            <span>TERRITORY WORKSPACE</span>
           </div>
         </div>
       </div>
