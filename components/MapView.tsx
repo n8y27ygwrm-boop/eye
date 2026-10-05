@@ -26,9 +26,9 @@ function makeAgentLocationIcon() {
   })
 }
 
-function makeIcon(color: string, isActive: boolean) {
+function makeIcon(color: string, isActive: boolean, statusClass: string) {
   return L.divIcon({
-    html: `<div style="background:${color};width:18px;height:18px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.6)" class="${isActive ? 'pin-active' : ''}"></div>`,
+    html: `<div style="background:${color};width:18px;height:18px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.6)" class="${statusClass}${isActive ? ' pin-active' : ''}"></div>`,
     className: '',
     iconSize: [18, 18],
     iconAnchor: [9, 9],
@@ -94,7 +94,7 @@ export default function MapView() {
       const attention = actionAttention(c.id)
       const badge = attentionBadge(attention?.group ?? null, attention?.nearest?.due_date)
       const info = statusInfo(c.status)
-      const icon = makeIcon(info.color, info.key === 'active')
+      const icon = makeIcon(info.color, info.key === 'active', info.cls)
       const phoneClean = (c.phone ?? '').replace(/[^\d+]/g, '')
       const mapsHref = c.maps_url ?? `https://maps.google.com/?q=${c.lat},${c.lng}`
       const singlePopup = `

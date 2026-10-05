@@ -81,8 +81,10 @@ describe('Mobile Experience Architecture Pass for EYE', () => {
   test('8. Login page uses 100dvh and prevents mobile horizontal overflow', () => {
     const loginPath = path.join(root, 'app/login/login-form.tsx')
     const login = fs.readFileSync(loginPath, 'utf8')
-    assert.match(login, /min-h-\[100dvh\]/, 'login-form must use min-h-[100dvh]')
-    assert.match(login, /overflow-x-hidden/, 'login-form must prevent horizontal overflow')
+    const css = fs.readFileSync(path.join(root, 'app/globals.css'), 'utf8')
+    assert.match(login, /className="login-page"/, 'login must use its explicit CSS surface')
+    assert.match(css, /\.login-page\s*\{[^}]*min-height:\s*100dvh/, 'login must fill the dynamic viewport')
+    assert.match(css, /\.login-canvas\s*\{[^}]*overflow:\s*hidden/, 'login must contain its decorative background')
   })
   test('9. Desktop and mobile SavvySelect filter display modes cannot visually coexist', () => {
     const selectPath = path.join(root, 'components/SavvySelect.tsx')
