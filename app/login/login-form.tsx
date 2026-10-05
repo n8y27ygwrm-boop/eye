@@ -63,18 +63,18 @@ export default function LoginForm() {
   }
 
   return (
-    <main className="relative isolate min-h-[100dvh] overflow-x-hidden bg-[#0d0e10] text-[#f5f3ef]">
-      <div className="relative min-h-[100dvh] overflow-x-hidden">
+    <main className="login-page">
+      <div className="login-canvas">
         {/* Territory Map Layer (Calm Architectural Field Visual) */}
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="login-territory">
           {/* Ambient Lighting & Soft Edge Vignette */}
-          <div className="absolute inset-0 z-10 bg-gradient-to-r from-[#0d0e10]/80 via-[#0d0e10]/40 to-[#0d0e10]/35" />
-          <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#0d0e10]/25 via-transparent to-[#0d0e10]/70" />
+          <div className="login-vignette-horizontal" />
+          <div className="login-vignette-vertical" />
 
           {/* Clean Territory Grid & Geometry */}
           <svg
             aria-hidden="true"
-            className="absolute -right-[85%] -top-[45%] h-[110%] w-[185%] text-[#3b3d41]/70 opacity-70 sm:-right-[35%] sm:top-[-5%] sm:w-[145%] lg:-right-[7%] lg:-top-[12%] lg:h-[125%] lg:w-[105%] lg:opacity-80"
+            className="login-territory-map"
             fill="none"
             viewBox="0 0 1600 1000"
             xmlns="http://www.w3.org/2000/svg"
@@ -136,7 +136,7 @@ export default function LoginForm() {
 
             {/* Sales Route Visit Flow (Smooth bezier curve connecting client meetings) */}
             <path
-              className="animate-route"
+              className="login-route"
               d="M 260 760 C 310 650, 420 540, 470 465 C 530 380, 620 440, 670 465 C 730 495, 830 520, 930 465"
               fill="none"
               stroke="url(#route-grad)"
@@ -157,7 +157,7 @@ export default function LoginForm() {
 
             {/* Client Stop 3 (Active Visit / Live Node) */}
             <g transform="translate(670, 465)">
-              <circle className="animate-breathe" cx="0" cy="0" fill="url(#soft-pulse)" r="24" />
+              <circle className="login-node-pulse" cx="0" cy="0" fill="url(#soft-pulse)" r="24" />
               <circle cx="0" cy="0" fill="none" r="11" stroke="#c93b3b" strokeOpacity="0.4" strokeWidth="1" />
               <circle cx="0" cy="0" fill="#c93b3b" r="5.5" />
               <circle cx="0" cy="0" fill="#f5f3ef" r="2" />
@@ -179,38 +179,36 @@ export default function LoginForm() {
           </svg>
         </div>
 
-        <div className="relative z-20 flex min-h-[100dvh] items-center px-4 py-6 sm:px-8 sm:py-10 lg:px-[clamp(56px,10vw,160px)]">
+        <div className="login-layout">
           <section
             aria-label="Sign in to EYE"
-            className="mx-auto w-full max-w-[460px] rounded-[22px] border border-[#414247]/80 bg-[#191a1d]/90 px-7 py-8 backdrop-blur-xl sm:px-10 sm:py-10 lg:mx-0"
-            style={{ boxShadow: '0 32px 80px -24px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.04)' }}
+            className="login-card"
           >
             <header>
-              <div className="mb-7 flex items-center gap-3">
-                <span className="h-2 w-2 rounded-full bg-[#d15353] ring-[5px] ring-[#d15353]/15" />
-                <span className="text-[11px] font-semibold tracking-[0.18em] text-[#bbbcc1]">FIELD SALES</span>
-                <span className="ml-auto h-px w-12 bg-gradient-to-r from-[#55565b] to-transparent" />
+              <div className="login-context">
+                <span className="login-context-dot" />
+                <span className="login-context-label">FIELD SALES</span>
+                <span className="login-context-rule" />
               </div>
               <h1
-                className="text-[48px] font-semibold leading-none tracking-[-0.065em] text-[#f5f3ef] sm:text-[54px]"
-                style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+                className="login-title"
               >
                 EYE
               </h1>
-              <p className="mt-2 text-[11px] font-medium tracking-[0.16em] text-[#aaaab0]">by SAVVY SYSTEMS</p>
-              <p className="mt-4 text-[14px] leading-6 text-[#aaabb0]">Field Sales Workspace</p>
+              <p className="login-byline">by SAVVY SYSTEMS</p>
+              <p className="login-description">Field Sales Workspace</p>
             </header>
 
             {error && (
-              <div className="mt-7 flex items-start gap-2.5 rounded-[10px] border border-[#a94a4a]/50 bg-[#8e2230]/15 px-3.5 py-3 text-[13px] leading-5 text-[#ffb4ab]" role="alert">
-                <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#ffb4ab]" />
+              <div className="login-error" role="alert">
+                <span className="login-error-dot" />
                 <span>{error}</span>
               </div>
             )}
 
-            <form className="mt-8 flex flex-col gap-5" onSubmit={handleSubmit}>
-              <div className="flex flex-col gap-2">
-                <label className="text-[12px] font-medium tracking-[0.02em] text-[#d0d0d3]" htmlFor="email">
+            <form className="login-form" onSubmit={handleSubmit}>
+              <div className="login-field">
+                <label className="login-label" htmlFor="email">
                   Email
                 </label>
                 <input
@@ -221,15 +219,15 @@ export default function LoginForm() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="name@company.com"
-                  className="h-[52px] w-full rounded-[10px] border border-[#44454a] bg-[#101114] px-4 text-[14px] text-[#f5f3ef] placeholder:text-[#777980] transition-colors duration-150 focus:border-[#d15353] focus:outline-none focus:ring-[3px] focus:ring-[#d15353]/15"
+                  className="login-input"
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label className="text-[12px] font-medium tracking-[0.02em] text-[#d0d0d3]" htmlFor="password">
+              <div className="login-field">
+                <label className="login-label" htmlFor="password">
                   Password
                 </label>
-                <div className="relative">
+                <div className="login-password-wrap">
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
@@ -238,28 +236,28 @@ export default function LoginForm() {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    className="h-[52px] w-full rounded-[10px] border border-[#44454a] bg-[#101114] pl-4 pr-14 text-[14px] text-[#f5f3ef] placeholder:text-[#777980] transition-colors duration-150 focus:border-[#d15353] focus:outline-none focus:ring-[3px] focus:ring-[#d15353]/15"
+                    className="login-input login-password-input"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? 'Fshih fjalëkalimin' : 'Shfaq fjalëkalimin'}
-                    className="absolute right-1.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-[7px] text-[#a2a3a9] transition-colors hover:bg-[#292a2f] hover:text-[#f5f3ef] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d15353]"
+                    className="login-password-toggle"
                   >
                     <EyeToggleIcon open={showPassword} />
                   </button>
                 </div>
               </div>
 
-              <label className="flex w-fit cursor-pointer select-none items-center gap-2.5 pt-0.5 text-[13px] text-[#b9bac0] transition-colors hover:text-[#f5f3ef]">
-                <span className="relative flex h-[18px] w-[18px] items-center justify-center">
+              <label className="login-remember">
+                <span className="login-checkbox-wrap">
                   <input
                     type="checkbox"
                     checked={rememberDevice}
                     onChange={e => setRememberDevice(e.target.checked)}
-                    className="peer h-[18px] w-[18px] cursor-pointer appearance-none rounded-[5px] border border-[#66676c] bg-[#101114] transition-colors checked:border-[#d15353] checked:bg-[#d15353] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d15353]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#191a1d]"
+                    className="login-checkbox"
                   />
-                  <svg className="pointer-events-none absolute h-3 w-3 text-white opacity-0 transition-opacity peer-checked:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg className="login-checkbox-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </span>
@@ -269,13 +267,13 @@ export default function LoginForm() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-1 flex h-[52px] w-full items-center justify-center rounded-[10px] bg-[#f1efea] text-[14px] font-semibold text-[#141518] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-colors duration-150 hover:bg-white active:bg-[#dedbd5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f1efea] focus-visible:ring-offset-2 focus-visible:ring-offset-[#191a1d] disabled:cursor-wait disabled:opacity-60"
+                className="login-submit"
               >
                 {loading ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="h-4 w-4 animate-spin text-[#0d0e10]" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  <span className="login-loading">
+                    <svg className="login-spinner" viewBox="0 0 24 24" fill="none">
+                      <circle className="login-spinner-track" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="login-spinner-arc" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                     </svg>
                     <span>Authenticating...</span>
                   </span>
@@ -285,14 +283,14 @@ export default function LoginForm() {
               </button>
             </form>
 
-            <div className="mt-8 flex items-center justify-between border-t border-[#3b3c41] pt-5 font-mono text-[10px] tracking-[0.05em] text-[#898b92]">
+            <div className="login-footer">
               <span>Private workspace</span>
               <span>SAVVY SYSTEMS</span>
             </div>
           </section>
 
-          <div className="pointer-events-none absolute bottom-8 right-10 hidden items-center gap-2 font-mono text-[11px] tracking-[0.08em] text-[#8a8c92] lg:flex">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#d15353]" />
+          <div className="login-territory-caption">
+            <span className="login-caption-dot" />
             <span>TERRITORY WORKSPACE</span>
           </div>
         </div>
